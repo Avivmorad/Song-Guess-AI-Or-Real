@@ -1,3 +1,0 @@
--- Demo tracks are versioned in the initial migration so hosted and local
--- environments receive the same legal content. Keep this file for future
--- environment-specific, non-secret seed data.

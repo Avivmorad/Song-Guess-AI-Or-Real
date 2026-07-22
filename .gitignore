@@ -1,33 +1,5 @@
-# Dependencies and build output
 node_modules/
-.next/
-out/
-build/
-coverage/
-
-# Test and browser artifacts
-test-results/
-playwright-report/
-blob-report/
-output/playwright/
-.playwright-mcp/
-
-# Local configuration and secrets
-.env
-.env.*
-!.env.example
-*.pem
 .vercel/
-
-# Tool caches and logs
-*.tsbuildinfo
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
 .DS_Store
 Thumbs.db
-
-# Generated local Supabase state
-server/supabase/.branches/
-server/supabase/.temp/
+*.log
