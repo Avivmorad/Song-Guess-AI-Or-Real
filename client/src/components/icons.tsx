@@ -4,7 +4,13 @@ type IconProps = SVGProps<SVGSVGElement>;
 
 function IconBase({ children, ...props }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      {...props}
+    >
       {children}
     </svg>
   );

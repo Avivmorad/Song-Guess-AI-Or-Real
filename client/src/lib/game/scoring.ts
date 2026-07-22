@@ -24,7 +24,10 @@ export function calculateScore(input: ScoreInput): ScoreResult {
   }
 
   const duration = Math.max(1, input.deadlineAtMs - input.startsAtMs);
-  const elapsed = Math.max(0, Math.min(duration, input.submittedAtMs - input.startsAtMs));
+  const elapsed = Math.max(
+    0,
+    Math.min(duration, input.submittedAtMs - input.startsAtMs),
+  );
   const speed = Math.max(0, Math.round(2000 * (1 - elapsed / duration)));
   return { base: 1000, speed, penalty: 0, total: 1000 + speed };
 }

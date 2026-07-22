@@ -12,19 +12,34 @@ const humanCompositions = [
     bpm: 112,
     lead: [64, 67, 71, 67, 62, 64, 67, 69, 71, 69, 67, 64, 62, 64, 59, 62],
     bass: [40, 40, 43, 43, 38, 38, 35, 35],
-    chords: [[52, 55, 59], [55, 59, 62], [50, 54, 57], [47, 50, 54]],
+    chords: [
+      [52, 55, 59],
+      [55, 59, 62],
+      [50, 54, 57],
+      [47, 50, 54],
+    ],
   },
   {
     bpm: 96,
     lead: [72, 71, 67, 64, 67, 69, 71, 74, 72, 69, 67, 64, 62, 64, 67, 64],
     bass: [45, 45, 41, 41, 43, 43, 40, 40],
-    chords: [[57, 60, 64], [53, 57, 60], [55, 59, 62], [52, 55, 59]],
+    chords: [
+      [57, 60, 64],
+      [53, 57, 60],
+      [55, 59, 62],
+      [52, 55, 59],
+    ],
   },
   {
     bpm: 124,
     lead: [67, 67, 70, 72, 67, 65, 63, 65, 67, 70, 72, 75, 74, 70, 67, 65],
     bass: [39, 39, 43, 43, 46, 46, 41, 41],
-    chords: [[51, 55, 58], [55, 58, 62], [58, 62, 65], [53, 57, 60]],
+    chords: [
+      [51, 55, 58],
+      [55, 58, 62],
+      [58, 62, 65],
+      [53, 57, 60],
+    ],
   },
 ];
 
@@ -67,7 +82,10 @@ function midiToFrequency(note) {
 
 function envelope(position, length, attack = 0.08, release = 0.24) {
   const attackLevel = Math.min(1, position / Math.max(attack, 0.001));
-  const releaseLevel = Math.min(1, (length - position) / Math.max(release, 0.001));
+  const releaseLevel = Math.min(
+    1,
+    (length - position) / Math.max(release, 0.001),
+  );
   return Math.max(0, Math.min(attackLevel, releaseLevel));
 }
 
@@ -75,7 +93,11 @@ function oscillator(frequency, time, shape = "sine") {
   const phase = 2 * Math.PI * frequency * time;
   if (shape === "triangle") return (2 / Math.PI) * Math.asin(Math.sin(phase));
   if (shape === "soft-saw") {
-    return 0.64 * Math.sin(phase) + 0.23 * Math.sin(phase * 2) + 0.13 * Math.sin(phase * 3);
+    return (
+      0.64 * Math.sin(phase) +
+      0.23 * Math.sin(phase * 2) +
+      0.13 * Math.sin(phase * 3)
+    );
   }
   return Math.sin(phase);
 }
@@ -100,10 +122,13 @@ function renderComposition(composition, seed) {
 
     const bassIndex = Math.floor(beat);
     const bassPosition = (beat - bassIndex) * secondsPerBeat;
-    const bassFrequency = midiToFrequency(composition.bass[bassIndex % composition.bass.length]);
+    const bassFrequency = midiToFrequency(
+      composition.bass[bassIndex % composition.bass.length],
+    );
     value +=
       0.24 *
-      (0.82 * oscillator(bassFrequency, time) + 0.18 * oscillator(bassFrequency * 2, time)) *
+      (0.82 * oscillator(bassFrequency, time) +
+        0.18 * oscillator(bassFrequency * 2, time)) *
       envelope(bassPosition, secondsPerBeat * 0.88, 0.02, 0.2);
 
     const chordIndex = Math.floor(beat / 4) % composition.chords.length;
@@ -118,9 +143,12 @@ function renderComposition(composition, seed) {
     const beatPosition = (beat - Math.floor(beat)) * secondsPerBeat;
     if (beatPosition < 0.16) {
       const kickFrequency = 48 + 88 * Math.exp(-beatPosition * 28);
-      value += 0.31 * Math.sin(2 * Math.PI * kickFrequency * beatPosition) * Math.exp(-beatPosition * 18);
+      value +=
+        0.31 *
+        Math.sin(2 * Math.PI * kickFrequency * beatPosition) *
+        Math.exp(-beatPosition * 18);
     }
-    const halfPosition = ((beat + 0.5) - Math.floor(beat + 0.5)) * secondsPerBeat;
+    const halfPosition = (beat + 0.5 - Math.floor(beat + 0.5)) * secondsPerBeat;
     if (Math.floor(beat) % 2 === 1 && beatPosition < 0.12) {
       value += 0.1 * (noise() * 2 - 1) * Math.exp(-beatPosition * 28);
     }

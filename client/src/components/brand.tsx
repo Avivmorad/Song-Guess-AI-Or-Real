@@ -27,9 +27,9 @@ export function SiteHeader({ roomCode }: { roomCode?: string }) {
           Room <strong>{roomCode}</strong>
         </span>
       ) : (
-        <a className="text-link" href="/#how-to-play">
+        <Link className="text-link" href="/#how-to-play">
           How to play
-        </a>
+        </Link>
       )}
     </header>
   );

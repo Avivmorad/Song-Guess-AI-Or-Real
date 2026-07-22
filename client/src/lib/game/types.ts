@@ -1,12 +1,7 @@
 export type AnswerChoice = "ai" | "real";
 
 export type RoomPhase =
-  | "lobby"
-  | "countdown"
-  | "playing"
-  | "reveal"
-  | "intermission"
-  | "finished";
+  "lobby" | "countdown" | "playing" | "reveal" | "intermission" | "finished";
 
 export interface GameSettings {
   round_count: number;
@@ -109,7 +104,8 @@ function hasNumber(record: Record<string, unknown>, key: string): boolean {
 }
 
 export function isRoomState(value: unknown): value is RoomState {
-  if (!isRecord(value) || !isRecord(value.room) || !isRecord(value.me)) return false;
+  if (!isRecord(value) || !isRecord(value.room) || !isRecord(value.me))
+    return false;
   const room = value.room;
   const me = value.me;
   if (
@@ -144,7 +140,10 @@ export function isRoomState(value: unknown): value is RoomState {
 }
 
 export function normalizeRoomCode(value: string): string {
-  return value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, "").slice(0, 6);
+  return value
+    .toUpperCase()
+    .replace(/[^A-HJ-NP-Z2-9]/g, "")
+    .slice(0, 6);
 }
 
 export function normalizeNickname(value: string): string {

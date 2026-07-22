@@ -1,4 +1,8 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+} from "react";
 
 export function Button({
   className = "",
@@ -19,6 +23,7 @@ export function Field({
   label,
   hint,
   error,
+  className = "",
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & {
   label: string;
@@ -30,7 +35,7 @@ export function Field({
     <label className="field" htmlFor={props.id}>
       <span className="field-label">{label}</span>
       <input
-        className="input"
+        className={`input ${className}`}
         aria-invalid={Boolean(error)}
         aria-describedby={error ? errorId : undefined}
         {...props}
@@ -46,13 +51,28 @@ export function Field({
   );
 }
 
-export function Panel({ className = "", children }: { className?: string; children: ReactNode }) {
+export function Panel({
+  className = "",
+  children,
+}: {
+  className?: string;
+  children: ReactNode;
+}) {
   return <section className={`panel ${className}`}>{children}</section>;
 }
 
-export function StatusMessage({ children, tone = "error" }: { children: ReactNode; tone?: "error" | "info" }) {
+export function StatusMessage({
+  children,
+  tone = "error",
+}: {
+  children: ReactNode;
+  tone?: "error" | "info";
+}) {
   return (
-    <p className={`status-message status-${tone}`} role={tone === "error" ? "alert" : "status"}>
+    <p
+      className={`status-message status-${tone}`}
+      role={tone === "error" ? "alert" : "status"}
+    >
       {children}
     </p>
   );

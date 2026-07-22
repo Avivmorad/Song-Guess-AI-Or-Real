@@ -7,15 +7,19 @@ export function getSupabaseBrowserClient(): SupabaseClient {
   if (browserClient) return browserClient;
   const config = getPublicConfig();
   if (!config) throw new Error("BACKEND_NOT_CONFIGURED");
-  browserClient = createClient(config.supabaseUrl, config.supabasePublishableKey, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: false,
-      storageKey: "song-guess-session",
+  browserClient = createClient(
+    config.supabaseUrl,
+    config.supabasePublishableKey,
+    {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+        storageKey: "song-guess-session",
+      },
+      realtime: { params: { eventsPerSecond: 10 } },
     },
-    realtime: { params: { eventsPerSecond: 10 } },
-  });
+  );
   return browserClient;
 }
 

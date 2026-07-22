@@ -10,7 +10,10 @@ export function getStartGate(players: RoomPlayer[]): StartGate {
     return { canStart: false, reason: "At least two players are required." };
   }
   if (players.some((player) => !player.is_connected)) {
-    return { canStart: false, reason: "Wait for disconnected players to return." };
+    return {
+      canStart: false,
+      reason: "Wait for disconnected players to return.",
+    };
   }
   if (players.some((player) => !player.is_ready)) {
     return { canStart: false, reason: "Every player must be ready." };
@@ -18,7 +21,13 @@ export function getStartGate(players: RoomPlayer[]): StartGate {
   return { canStart: true, reason: "Everyone is ready." };
 }
 
-export function getRemainingMs(endsAt: string | null, serverOffsetMs = 0): number {
+export function getRemainingMs(
+  endsAt: string | null,
+  serverOffsetMs = 0,
+): number {
   if (!endsAt) return 0;
-  return Math.max(0, new Date(endsAt).getTime() - (Date.now() + serverOffsetMs));
+  return Math.max(
+    0,
+    new Date(endsAt).getTime() - (Date.now() + serverOffsetMs),
+  );
 }

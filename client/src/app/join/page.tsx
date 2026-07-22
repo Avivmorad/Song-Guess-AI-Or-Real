@@ -16,11 +16,15 @@ export default async function JoinPage({
         <div className="join-art" aria-hidden="true">
           <span className="join-orbit orbit-one" />
           <span className="join-orbit orbit-two" />
-          <div className="join-disc"><span>?</span></div>
+          <div className="join-disc">
+            <span>?</span>
+          </div>
           <p>Listen closely.</p>
         </div>
       </div>
-      <Link className="back-link" href="/">← Back home</Link>
+      <Link className="back-link" href="/">
+        ← Back home
+      </Link>
     </main>
   );
 }

@@ -36,7 +36,8 @@ const safeMessages: Record<string, string> = {
 export class GameApiError extends Error {
   constructor(
     public readonly code: string,
-    message = safeMessages[code] || "The game service could not complete that action.",
+    message = safeMessages[code] ||
+      "The game service could not complete that action.",
   ) {
     super(message);
     this.name = "GameApiError";
@@ -46,7 +47,9 @@ export class GameApiError extends Error {
 function toGameError(error: unknown): GameApiError {
   if (error instanceof GameApiError) return error;
   const raw = error instanceof Error ? error.message : String(error);
-  const code = Object.keys(safeMessages).find((candidate) => raw.includes(candidate));
+  const code = Object.keys(safeMessages).find((candidate) =>
+    raw.includes(candidate),
+  );
   return new GameApiError(code || "UNKNOWN");
 }
 
@@ -70,10 +73,16 @@ export async function createRoom(
   nickname: string,
   settings: GameSettings = DEFAULT_SETTINGS,
 ): Promise<RoomState> {
-  return rpcRoomState("create_room", { p_nickname: nickname, p_settings: settings });
+  return rpcRoomState("create_room", {
+    p_nickname: nickname,
+    p_settings: settings,
+  });
 }
 
-export async function joinRoom(code: string, nickname: string): Promise<RoomState> {
+export async function joinRoom(
+  code: string,
+  nickname: string,
+): Promise<RoomState> {
   return rpcRoomState("join_room", { p_code: code, p_nickname: nickname });
 }
 
@@ -85,23 +94,38 @@ export async function heartbeat(code: string): Promise<RoomState> {
   return rpcRoomState("heartbeat", { p_code: code });
 }
 
-export async function setReady(code: string, ready: boolean): Promise<RoomState> {
+export async function setReady(
+  code: string,
+  ready: boolean,
+): Promise<RoomState> {
   return rpcRoomState("set_ready", { p_code: code, p_ready: ready });
 }
 
-export async function updateSettings(code: string, settings: GameSettings): Promise<RoomState> {
-  return rpcRoomState("update_settings", { p_code: code, p_settings: settings });
+export async function updateSettings(
+  code: string,
+  settings: GameSettings,
+): Promise<RoomState> {
+  return rpcRoomState("update_settings", {
+    p_code: code,
+    p_settings: settings,
+  });
 }
 
 export async function startGame(code: string): Promise<RoomState> {
   return rpcRoomState("start_game", { p_code: code });
 }
 
-export async function submitAnswer(code: string, choice: AnswerChoice): Promise<RoomState> {
+export async function submitAnswer(
+  code: string,
+  choice: AnswerChoice,
+): Promise<RoomState> {
   return rpcRoomState("submit_answer", { p_code: code, p_choice: choice });
 }
 
-export async function removePlayer(code: string, playerId: string): Promise<RoomState> {
+export async function removePlayer(
+  code: string,
+  playerId: string,
+): Promise<RoomState> {
   return rpcRoomState("remove_player", { p_code: code, p_player_id: playerId });
 }
 
@@ -112,14 +136,19 @@ export async function playAgain(code: string): Promise<RoomState> {
 export async function leaveRoom(code: string): Promise<void> {
   try {
     await ensureAnonymousSession();
-    const { error } = await getSupabaseBrowserClient().rpc("leave_room", { p_code: code });
+    const { error } = await getSupabaseBrowserClient().rpc("leave_room", {
+      p_code: code,
+    });
     if (error) throw error;
   } catch (error) {
     throw toGameError(error);
   }
 }
 
-export function subscribeToRoom(roomId: string, onChange: () => void): RealtimeChannel {
+export function subscribeToRoom(
+  roomId: string,
+  onChange: () => void,
+): RealtimeChannel {
   return getSupabaseBrowserClient()
     .channel(`room:${roomId}`)
     .on(
@@ -135,6 +164,8 @@ export function subscribeToRoom(roomId: string, onChange: () => void): RealtimeC
     .subscribe();
 }
 
-export async function unsubscribeFromRoom(channel: RealtimeChannel): Promise<void> {
+export async function unsubscribeFromRoom(
+  channel: RealtimeChannel,
+): Promise<void> {
   await getSupabaseBrowserClient().removeChannel(channel);
 }
