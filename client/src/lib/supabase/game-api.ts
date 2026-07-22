@@ -7,6 +7,12 @@ import {
   type RoomState,
 } from "@/lib/game/types";
 import { ensureAnonymousSession, getSupabaseBrowserClient } from "./client";
+import type { Database } from "./database.types";
+
+type RoomRpcName = Exclude<
+  keyof Database["public"]["Functions"],
+  "admin_list_tracks" | "admin_upsert_track"
+>;
 
 const safeMessages: Record<string, string> = {
   AUTH_REQUIRED: "Your game session expired. Refresh and try again.",
@@ -46,7 +52,15 @@ export class GameApiError extends Error {
 
 function toGameError(error: unknown): GameApiError {
   if (error instanceof GameApiError) return error;
-  const raw = error instanceof Error ? error.message : String(error);
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" &&
+          error !== null &&
+          "message" in error &&
+          typeof error.message === "string"
+        ? error.message
+        : String(error);
   const code = Object.keys(safeMessages).find((candidate) =>
     raw.includes(candidate),
   );
@@ -54,13 +68,13 @@ function toGameError(error: unknown): GameApiError {
 }
 
 async function rpcRoomState(
-  functionName: string,
+  functionName: RoomRpcName,
   parameters: Record<string, unknown>,
 ): Promise<RoomState> {
   try {
     await ensureAnonymousSession();
     const client = getSupabaseBrowserClient();
-    const { data, error } = await client.rpc(functionName, parameters);
+    const { data, error } = await client.rpc(functionName, parameters as never);
     if (error) throw error;
     if (!isRoomState(data)) throw new GameApiError("INVALID_RESPONSE");
     return data;

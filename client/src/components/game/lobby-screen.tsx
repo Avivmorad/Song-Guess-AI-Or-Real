@@ -257,7 +257,7 @@ export function LobbyScreen({
                   })
                 }
               >
-                {[15, 20, 30, 45].map((value) => (
+                {[10, 15, 20, 30, 45].map((value) => (
                   <option key={value} value={value}>
                     {value} seconds
                   </option>
@@ -277,7 +277,7 @@ export function LobbyScreen({
                   })
                 }
               >
-                {[5, 7, 10, 15].map((value) => (
+                {[4, 5, 7, 10, 15].map((value) => (
                   <option key={value} value={value}>
                     {value} seconds
                   </option>

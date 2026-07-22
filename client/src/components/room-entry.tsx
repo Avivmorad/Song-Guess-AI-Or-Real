@@ -117,7 +117,7 @@ export function CreateRoomForm({
                 })
               }
             >
-              {[15, 20, 30, 45].map((value) => (
+              {[10, 15, 20, 30, 45].map((value) => (
                 <option key={value} value={value}>
                   {value} seconds
                 </option>

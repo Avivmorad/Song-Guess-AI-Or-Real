@@ -1,13 +1,14 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getPublicConfig } from "./config";
+import type { Database } from "./database.types";
 
-let browserClient: SupabaseClient | null = null;
+let browserClient: SupabaseClient<Database> | null = null;
 
-export function getSupabaseBrowserClient(): SupabaseClient {
+export function getSupabaseBrowserClient(): SupabaseClient<Database> {
   if (browserClient) return browserClient;
   const config = getPublicConfig();
   if (!config) throw new Error("BACKEND_NOT_CONFIGURED");
-  browserClient = createClient(
+  browserClient = createClient<Database>(
     config.supabaseUrl,
     config.supabasePublishableKey,
     {
