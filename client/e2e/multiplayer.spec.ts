@@ -90,13 +90,13 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
     await Promise.all([
       expect(host.getByRole("heading", { name: "Who made this?" })).toBeVisible(
         {
-          timeout: 20_000,
+          timeout: 45_000,
         },
       ),
       expect(
         guest.getByRole("heading", { name: "Who made this?" }),
       ).toBeVisible({
-        timeout: 20_000,
+        timeout: 45_000,
       }),
     ]);
     await Promise.all([
@@ -175,7 +175,7 @@ test("one player completes a full game with prepared rounds", async ({
   for (let round = 1; round <= 3; round += 1) {
     await expect(
       page.getByRole("heading", { name: "Who made this?" }),
-    ).toBeVisible({ timeout: 20_000 });
+    ).toBeVisible({ timeout: 45_000 });
     await activateBlockedAudio(page);
     await page.locator(".answer-real").click();
     await expect(page.getByText("Correct answer", { exact: true })).toBeVisible(

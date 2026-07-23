@@ -1,5 +1,7 @@
 -- Dynamic, per-round track preparation with private Storage playback.
 
+alter type public.room_phase add value if not exists 'preparing' after 'lobby';
+
 alter table private.tracks
   add column provider text,
   add column provider_track_id text,
