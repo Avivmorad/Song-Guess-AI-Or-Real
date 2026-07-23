@@ -20,6 +20,30 @@ describe("whole-game audio cache", () => {
   beforeEach(() => {
     clearGameAudioCache("CACHE1");
     getGameAudioPlaylist.mockReset();
+    vi.stubGlobal(
+      "Audio",
+      vi.fn(function AudioMock() {
+        const listeners = new Map<string, () => void>();
+        return {
+          src: "",
+          volume: 0.8,
+          preload: "",
+          currentTime: 0,
+          play: vi.fn().mockResolvedValue(undefined),
+          pause: vi.fn(),
+          addEventListener: vi.fn(
+            (event: string, listener: () => void) =>
+              void listeners.set(event, listener),
+          ),
+          removeEventListener: vi.fn((event: string) =>
+            listeners.delete(event),
+          ),
+          load: vi.fn(() =>
+            queueMicrotask(() => listeners.get("loadeddata")?.()),
+          ),
+        };
+      }),
+    );
   });
 
   it("unlocks one shared player from an existing lobby gesture", async () => {
@@ -30,6 +54,7 @@ describe("whole-game audio cache", () => {
       currentTime: 0,
       play: vi.fn().mockResolvedValue(undefined),
       pause: vi.fn(),
+      load: vi.fn(),
     };
     const AudioConstructor = vi.fn(function AudioMock() {
       return audio;
