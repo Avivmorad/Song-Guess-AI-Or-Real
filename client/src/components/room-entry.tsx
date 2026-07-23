@@ -219,15 +219,19 @@ export function JoinRoomForm({
       ? "Use a nickname between 2 and 20 characters."
       : "";
 
+  function showValidationErrors() {
+    setCodeTouched(true);
+    setNicknameTouched(true);
+    const firstInvalidId = !codeIsValid ? "join-code" : "join-nickname";
+    document.getElementById(firstInvalidId)?.focus();
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const cleanNickname = normalizeNickname(nickname);
     const cleanCode = normalizeRoomCode(code);
-    setCodeTouched(true);
-    setNicknameTouched(true);
     if (!codeIsValid || !nicknameIsValid) {
-      const firstInvalidId = !codeIsValid ? "join-code" : "join-nickname";
-      document.getElementById(firstInvalidId)?.focus();
+      showValidationErrors();
       return;
     }
     if (!isBackendConfigured()) {
@@ -251,7 +255,20 @@ export function JoinRoomForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="join-card">
+    <form
+      onSubmit={handleSubmit}
+      onKeyDown={(event) => {
+        if (
+          event.key === "Enter" &&
+          !isSubmitting &&
+          (!codeIsValid || !nicknameIsValid)
+        ) {
+          event.preventDefault();
+          showValidationErrors();
+        }
+      }}
+      className="join-card"
+    >
       <div className="join-card-heading">
         <p className="eyebrow">Join a Game</p>
         <h1>Join a Banger or Bot room.</h1>

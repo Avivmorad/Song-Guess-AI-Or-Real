@@ -378,10 +378,8 @@ test("join validation reports both fields and focuses the first invalid field", 
 
   const joinButton = page.getByRole("button", { name: "Join Game" });
   await expect(joinButton).toBeDisabled();
-
-  await page.locator("form").evaluate((form: HTMLFormElement) =>
-    form.requestSubmit(),
-  );
+  await page.getByLabel("Nickname").focus();
+  await page.keyboard.press("Enter");
 
   await expect(page.getByLabel("Room code")).toBeFocused();
   await expect(page.locator("#join-code-error")).toContainText(

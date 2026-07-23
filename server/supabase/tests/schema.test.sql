@@ -1,6 +1,6 @@
 begin;
 
-select plan(67);
+select plan(69);
 
 select has_schema('private', 'private schema exists');
 select has_table('public', 'rooms', 'rooms table exists');
@@ -266,6 +266,36 @@ select has_function(
 
 insert into auth.users (id, is_anonymous)
 values ('00000000-0000-0000-0000-000000000101', true);
+select lives_ok(
+  $$
+    do $rate_limit$
+    begin
+      for attempt in 1..5 loop
+        perform private.enforce_rpc_rate_limit(
+          '00000000-0000-0000-0000-000000000101',
+          'create_room',
+          5,
+          interval '10 minutes'
+        );
+      end loop;
+    end
+    $rate_limit$
+  $$,
+  'allowed RPC attempts remain below the configured limit'
+);
+select throws_ok(
+  $$
+    select private.enforce_rpc_rate_limit(
+      '00000000-0000-0000-0000-000000000101',
+      'create_room',
+      5,
+      interval '10 minutes'
+    )
+  $$,
+  'P0001',
+  'RATE_LIMITED',
+  'excess RPC attempts are rejected'
+);
 insert into public.rooms (id, code, host_user_id, song_pack)
 values (
   '00000000-0000-0000-0000-000000000102',
