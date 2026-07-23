@@ -77,9 +77,11 @@ npm run build
 npm run test:e2e
 ```
 
-`test:integration` and `test:e2e` need the Supabase variables above. The browser
-suite starts a local Next.js server automatically unless `E2E_BASE_URL` points
-to an existing deployment. SQL pgTAP coverage lives in
+`test:integration` requires the dedicated `E2E_SUPABASE_URL`,
+`E2E_SUPABASE_PUBLISHABLE_KEY`, and `E2E_SUPABASE_SERVICE_ROLE_KEY` values from
+`.env.example`. The browser suite uses the normal app variables and starts a
+local Next.js server automatically unless `E2E_BASE_URL` points to an existing
+deployment. SQL pgTAP coverage lives in
 `server/supabase/tests/schema.test.sql`.
 
 ## Game rules and scoring
@@ -111,6 +113,7 @@ npm ci
 npm run db:start
 npm run db:reset
 npm run db:lint
+npm run db:test
 ```
 
 Production migrations should be reviewed, applied in order, followed by the

@@ -2,7 +2,11 @@ import "server-only";
 
 import { randomInt, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { downloadAudio, sha256Hex } from "./audio-files";
+import {
+  downloadAudio,
+  sha256Hex,
+  validateRemoteAudioUrl,
+} from "./audio-files";
 import { getServerConfig, getSupabaseAdminClient } from "./supabase-admin";
 
 interface PreparationClaim {
@@ -11,6 +15,7 @@ interface PreparationClaim {
   answer_type?: "real" | "ai";
   error_code?: string;
   used_provider_track_ids?: string[];
+  storage_path?: string;
 }
 
 interface JamendoTrack {
@@ -29,6 +34,42 @@ interface JamendoTrack {
 interface JamendoResponse {
   headers?: { status?: string; results_fullcount?: number };
   results?: JamendoTrack[];
+}
+
+const PUBLIC_ERROR_CODES = new Set([
+  "JAMENDO_NOT_CONFIGURED",
+  "JAMENDO_UNAVAILABLE",
+  "JAMENDO_EMPTY",
+  "NO_ELIGIBLE_JAMENDO_TRACK",
+  "PREPARATION_TIMEOUT",
+]);
+
+function publicPreparationError(error: unknown): string {
+  if (error instanceof Error && error.name === "AbortError") {
+    return "PREPARATION_TIMEOUT";
+  }
+  const code = error instanceof Error ? error.message : "";
+  return PUBLIC_ERROR_CODES.has(code) ? code : "PREPARATION_FAILED";
+}
+
+function normalizedHttpsUrl(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol === "http:") url.protocol = "https:";
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function isJamendoDownload(raw: string): boolean {
+  try {
+    const host = validateRemoteAudioUrl(raw).hostname.toLowerCase();
+    return host === "jamendo.com" || host.endsWith(".jamendo.com");
+  } catch {
+    return false;
+  }
 }
 
 async function rpc<T>(
@@ -92,9 +133,9 @@ async function fetchJamendoCandidates(
   return (payload.results || []).filter(
     (track) =>
       track.audiodownload_allowed === true &&
-      Boolean(track.audiodownload) &&
-      Boolean(track.shareurl || track.shorturl) &&
-      Boolean(track.license_ccurl),
+      isJamendoDownload(track.audiodownload) &&
+      Boolean(normalizedHttpsUrl(track.shareurl || track.shorturl)) &&
+      Boolean(normalizedHttpsUrl(track.license_ccurl)),
   );
 }
 
@@ -105,6 +146,9 @@ async function completeJamendoRound(
   storagePath: string,
   contentSha256: string,
 ) {
+  const sourceUrl = normalizedHttpsUrl(track.shareurl || track.shorturl);
+  const licenseUrl = normalizedHttpsUrl(track.license_ccurl);
+  if (!sourceUrl || !licenseUrl) throw new Error("INVALID_PROVIDER_METADATA");
   return rpc<PreparationClaim>(client, "service_complete_jamendo_round", {
     p_round_id: roundId,
     p_provider_track_id: track.id,
@@ -112,8 +156,8 @@ async function completeJamendoRound(
     p_artist: track.artist_name,
     p_duration_seconds: Math.round(Number(track.duration)),
     p_storage_path: storagePath,
-    p_source_url: track.shareurl || track.shorturl,
-    p_license_url: track.license_ccurl,
+    p_source_url: sourceUrl,
+    p_license_url: licenseUrl,
     p_genres: track.musicinfo?.tags?.genres || [],
     p_content_sha256: contentSha256,
   });
@@ -171,13 +215,17 @@ async function prepareJamendoRound(
       });
     if (upload.error) throw upload.error;
     try {
-      return await completeJamendoRound(
+      const result = await completeJamendoRound(
         client,
         claim.round_id,
         track,
         storagePath,
         contentSha256,
       );
+      if (result.storage_path && result.storage_path !== storagePath) {
+        await client.storage.from("track-audio").remove([storagePath]);
+      }
+      return result;
     } catch (error) {
       await client.storage.from("track-audio").remove([storagePath]);
       throw error;
@@ -208,17 +256,18 @@ export async function prepareCurrentRound(
   try {
     return await prepareJamendoRound(claim, controller.signal);
   } catch (error) {
-    const errorCode =
-      error instanceof Error && error.name === "AbortError"
-        ? "PREPARATION_TIMEOUT"
-        : error instanceof Error
-          ? error.message
-          : "PREPARATION_FAILED";
-    await rpc(client, "service_fail_round_preparation", {
-      p_round_id: claim.round_id,
-      p_error_code: errorCode,
-    });
-    return { ...claim, status: "failed", error_code: errorCode };
+    const errorCode = publicPreparationError(error);
+    const failed = await rpc<PreparationClaim>(
+      client,
+      "service_fail_round_preparation",
+      {
+        p_round_id: claim.round_id,
+        p_error_code: errorCode,
+      },
+    );
+    return failed.status === "ready"
+      ? failed
+      : { ...claim, status: "failed", error_code: errorCode };
   } finally {
     clearTimeout(timeout);
   }

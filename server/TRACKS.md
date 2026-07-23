@@ -31,11 +31,12 @@ node scripts/import-suno-track.mjs --file=./exports/song.mp3 --title="Song title
 node scripts/import-suno-track.mjs --download-url=https://files.example/song.mp3 --title="Song title" --artist="Artist" --duration=180 --source-url=https://suno.com/playlist/PLAYLIST_ID
 ```
 
-The command accepts MP3 files up to 50 MiB, strips ID3 metadata, uploads the
-audio under an opaque path in the private `track-audio` bucket, and registers it
-as an enabled `dynamic` Suno track. A Suno song or playlist page is required for
-reveal attribution. Random Explore scraping and YouTube/Spotify downloads are
-not supported.
+The command accepts MP3 files up to 50 MiB, strips ID3 metadata, validates every
+HTTPS redirect, uploads the audio under an opaque path in the private
+`track-audio` bucket, and registers it as an enabled `dynamic` Suno track. A
+Suno song or playlist page is required for reveal attribution. Duplicate audio
+is reused instead of registered twice. Random Explore scraping and
+YouTube/Spotify downloads are not supported.
 
 ## Runtime preparation
 

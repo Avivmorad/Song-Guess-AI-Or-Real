@@ -14,7 +14,12 @@ update private.tracks
 set
   provider = 'project',
   provider_track_id = public_id,
-  source_url = null
+  source_url = 'https://github.com/Avivmorad/Song-Guess-AI-Or-Real/blob/main/client/public/audio/' || audio_filename,
+  license_url = case
+    when license_note like '%CC0-1.0%'
+      then 'https://creativecommons.org/publicdomain/zero/1.0/'
+    else null
+  end
 where provider is null;
 
 alter table private.tracks
@@ -33,8 +38,14 @@ alter table private.tracks
       (provider = 'project' and audio_filename is not null)
       or (provider in ('jamendo', 'suno') and storage_path is not null)
     ),
+  add constraint tracks_storage_path_format_check
+    check (storage_path is null or storage_path ~ '^[0-9a-f-]{36}\.mp3$'),
   add constraint tracks_source_url_check
-    check (source_url is null or source_url ~ '^https://');
+    check (source_url is null or source_url ~ '^https://'),
+  add constraint tracks_license_url_check
+    check (license_url is null or license_url ~ '^https://'),
+  add constraint tracks_content_sha256_check
+    check (content_sha256 is null or content_sha256 ~ '^[0-9a-f]{64}$');
 
 alter table public.rooms alter column song_pack set default 'dynamic';
 
@@ -78,6 +89,29 @@ create index round_preparations_track_idx
 create index round_audio_ready_player_idx
   on private.round_audio_ready (player_id, round_id);
 
+-- Preserve games created before per-round preparation existed. Their hidden
+-- selections are already authoritative, so promote them to ready preparations.
+insert into private.round_plans (round_id, planned_answer)
+select rs.round_id, t.correct_answer
+from private.round_secrets rs
+join private.tracks t on t.id = rs.track_id
+on conflict (round_id) do nothing;
+
+insert into private.round_preparations (
+  round_id, status, track_id, ready_at
+)
+select rs.round_id, 'ready', rs.track_id, coalesce(r.starts_at, r.created_at)
+from private.round_secrets rs
+join public.rounds r on r.id = rs.round_id
+on conflict (round_id) do nothing;
+
+insert into private.round_preparations (round_id)
+select r.id
+from public.rounds r
+where not exists (
+  select 1 from private.round_preparations rp where rp.round_id = r.id
+);
+
 alter table private.round_plans enable row level security;
 alter table private.round_preparations enable row level security;
 alter table private.round_audio_ready enable row level security;
@@ -107,6 +141,88 @@ on conflict (id) do update set
   public = false,
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
+
+create or replace function private.apply_settings(
+  p_room public.rooms,
+  p_settings jsonb
+)
+returns public.rooms
+language plpgsql
+immutable
+security invoker
+set search_path = ''
+as $$
+declare
+  v_result public.rooms := p_room;
+begin
+  if p_settings ? 'round_count' then
+    v_result.round_count := (p_settings ->> 'round_count')::integer;
+  end if;
+  if p_settings ? 'round_duration_seconds' then
+    v_result.round_duration_seconds := (p_settings ->> 'round_duration_seconds')::integer;
+  end if;
+  if p_settings ? 'reveal_duration_seconds' then
+    v_result.reveal_duration_seconds := (p_settings ->> 'reveal_duration_seconds')::integer;
+  end if;
+  if p_settings ? 'negative_points' then
+    v_result.negative_points := (p_settings ->> 'negative_points')::boolean;
+  end if;
+  if p_settings ? 'allow_answer_changes' then
+    v_result.allow_answer_changes := (p_settings ->> 'allow_answer_changes')::boolean;
+  end if;
+  if p_settings ? 'music_volume' then
+    v_result.music_volume := (p_settings ->> 'music_volume')::numeric;
+  end if;
+  if p_settings ? 'song_pack' then
+    v_result.song_pack := lower(trim(p_settings ->> 'song_pack'));
+  end if;
+
+  if v_result.round_count not between 3 and 12
+     or v_result.round_duration_seconds not between 10 and 45
+     or v_result.reveal_duration_seconds not between 4 and 15
+     or v_result.music_volume not between 0 and 1
+     or (v_result.song_pack is not null and v_result.song_pack not in ('dynamic', 'demo')) then
+    raise exception using errcode = 'P0001', message = 'INVALID_SETTINGS';
+  end if;
+  return v_result;
+exception
+  when invalid_text_representation or numeric_value_out_of_range then
+    raise exception using errcode = 'P0001', message = 'INVALID_SETTINGS';
+end;
+$$;
+
+create function private.balanced_round_plan(p_round_count integer)
+returns table(round_number integer, planned_answer public.answer_choice)
+language sql
+volatile
+security invoker
+set search_path = ''
+as $$
+  with base as (
+    select
+      p_round_count / 2 as base_count,
+      case
+        when p_round_count % 2 = 1 and random() < 0.5 then 1
+        else 0
+      end as extra_real
+    where p_round_count between 1 and 100
+  ), counts as (
+    select
+      base_count + extra_real as real_count,
+      p_round_count - base_count - extra_real as ai_count
+    from base
+  ), choices as (
+    select 'real'::public.answer_choice as planned_answer
+    from counts, generate_series(1, real_count)
+    union all
+    select 'ai'::public.answer_choice
+    from counts, generate_series(1, ai_count)
+  )
+  select
+    row_number() over (order by gen_random_uuid())::integer as round_number,
+    planned_answer
+  from choices;
+$$;
 
 create or replace function private.create_room(
   p_nickname text,
@@ -147,6 +263,34 @@ begin
 end;
 $$;
 
+create or replace function private.get_room_state(p_code text)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := private.require_user();
+  v_room_id uuid;
+begin
+  select id into v_room_id
+  from public.rooms
+  where code = private.clean_room_code(p_code) and expires_at > clock_timestamp();
+  if v_room_id is null then
+    raise exception using errcode = 'P0001', message = 'ROOM_NOT_FOUND';
+  end if;
+  if not exists (
+    select 1 from public.players
+    where room_id = v_room_id and user_id = v_user_id and left_at is null
+  ) then
+    raise exception using errcode = 'P0001', message = 'NOT_IN_ROOM';
+  end if;
+  perform private.advance_room_locked(v_room_id);
+  return private.room_state(v_room_id, v_user_id);
+end;
+$$;
+
 create or replace function private.start_game(p_code text)
 returns jsonb
 language plpgsql
@@ -159,8 +303,6 @@ declare
   v_room public.rooms;
   v_game public.games;
   v_game_number integer;
-  v_real_count integer;
-  v_ai_count integer;
 begin
   select * into v_room
   from public.rooms
@@ -170,6 +312,9 @@ begin
   if not found then raise exception using errcode = 'P0001', message = 'ROOM_NOT_FOUND'; end if;
   if v_room.host_user_id <> v_user_id then raise exception using errcode = 'P0001', message = 'HOST_ONLY'; end if;
   if v_room.phase <> 'lobby' then raise exception using errcode = 'P0001', message = 'GAME_ALREADY_STARTED'; end if;
+  update public.players set last_seen_at = clock_timestamp()
+  where room_id = v_room.id and user_id = v_user_id and left_at is null;
+  if not found then raise exception using errcode = 'P0001', message = 'NOT_IN_ROOM'; end if;
   if not exists (
     select 1 from public.players
     where room_id = v_room.id and left_at is null
@@ -211,30 +356,11 @@ begin
   select v_game.id, v_room.id, number
   from generate_series(1, v_room.round_count) as number;
 
-  v_real_count := v_room.round_count / 2;
-  v_ai_count := v_room.round_count / 2;
-  if v_room.round_count % 2 = 1 then
-    if random() < 0.5 then
-      v_real_count := v_real_count + 1;
-    else
-      v_ai_count := v_ai_count + 1;
-    end if;
-  end if;
-
-  with choices as (
-    select 'real'::public.answer_choice as planned_answer
-    from generate_series(1, v_real_count)
-    union all
-    select 'ai'::public.answer_choice
-    from generate_series(1, v_ai_count)
-  ), shuffled as (
-    select planned_answer, row_number() over (order by gen_random_uuid()) as number
-    from choices
-  )
   insert into private.round_plans (round_id, planned_answer)
   select r.id, s.planned_answer
   from public.rounds r
-  join shuffled s on s.number = r.round_number
+  join private.balanced_round_plan(v_room.round_count) s
+    on s.round_number = r.round_number
   where r.game_id = v_game.id;
 
   insert into private.round_preparations (round_id)
@@ -593,6 +719,10 @@ begin
   where code = private.clean_room_code(p_code)
   for update;
   if not found then raise exception using errcode = 'P0001', message = 'ROOM_NOT_FOUND'; end if;
+  select * into v_player
+  from public.players
+  where room_id = v_room.id and user_id = v_user_id and left_at is null;
+  if not found then raise exception using errcode = 'P0001', message = 'NOT_IN_ROOM'; end if;
   perform private.advance_room_locked(v_room.id);
   select * into v_room from public.rooms where id = v_room.id for update;
   if v_room.phase <> 'playing' then raise exception using errcode = 'P0001', message = 'ANSWER_WINDOW_CLOSED'; end if;
@@ -604,11 +734,6 @@ begin
   if v_now < v_round.starts_at or v_now >= v_round.deadline_at then
     raise exception using errcode = 'P0001', message = 'ANSWER_WINDOW_CLOSED';
   end if;
-  select * into v_player
-  from public.players
-  where room_id = v_room.id and user_id = v_user_id and left_at is null;
-  if not found then raise exception using errcode = 'P0001', message = 'NOT_IN_ROOM'; end if;
-
   select * into v_existing
   from public.answers
   where round_id = v_round.id and player_id = v_player.id
@@ -679,6 +804,10 @@ begin
   where code = private.clean_room_code(p_code)
   for update;
   if not found then raise exception using errcode = 'P0001', message = 'ROOM_NOT_FOUND'; end if;
+  select * into v_player
+  from public.players
+  where room_id = v_room.id and user_id = v_user_id and left_at is null;
+  if not found then raise exception using errcode = 'P0001', message = 'NOT_IN_ROOM'; end if;
   perform private.advance_room_locked(v_room.id);
   select * into v_room from public.rooms where id = v_room.id for update;
   if v_room.phase <> 'preparing' then
@@ -695,11 +824,6 @@ begin
   if v_preparation.status <> 'ready' then
     raise exception using errcode = 'P0001', message = 'AUDIO_NOT_READY';
   end if;
-  select * into v_player
-  from public.players
-  where room_id = v_room.id and user_id = v_user_id and left_at is null;
-  if not found then raise exception using errcode = 'P0001', message = 'NOT_IN_ROOM'; end if;
-
   update public.players set last_seen_at = clock_timestamp() where id = v_player.id;
   insert into private.round_audio_ready (round_id, player_id)
   values (v_round.id, v_player.id)
@@ -934,7 +1058,12 @@ begin
   select * into v_preparation
   from private.round_preparations where round_id = p_round_id for update;
   if v_preparation.status = 'ready' then
-    return jsonb_build_object('status', 'ready', 'round_id', p_round_id);
+    select * into v_track from private.tracks where id = v_preparation.track_id;
+    return jsonb_build_object(
+      'status', 'ready',
+      'round_id', p_round_id,
+      'storage_path', v_track.storage_path
+    );
   end if;
   if v_preparation.status <> 'preparing' then
     raise exception using errcode = 'P0001', message = 'PREPARATION_NOT_CLAIMED';
@@ -990,7 +1119,11 @@ begin
   values (p_round_id, v_track.id)
   on conflict (round_id) do update set track_id = excluded.track_id;
   perform private.emit_event(v_round.room_id, 'round_audio_prepared');
-  return jsonb_build_object('status', 'ready', 'round_id', p_round_id);
+  return jsonb_build_object(
+    'status', 'ready',
+    'round_id', p_round_id,
+    'storage_path', v_track.storage_path
+  );
 end;
 $$;
 
@@ -1090,7 +1223,8 @@ begin
      or p_artist is null or char_length(trim(p_artist)) not between 1 and 100
      or p_duration_seconds not between 5 and 3600
      or p_storage_path is null or p_storage_path !~ '^[0-9a-f-]{36}\.mp3$'
-     or p_source_url is null or p_source_url !~ '^https://(www\.)?suno\.com/'
+     or p_source_url is null
+     or p_source_url !~ '^https://(www\.)?suno\.com/(song|playlist)/[^/?#]+'
      or p_content_sha256 is null or p_content_sha256 !~ '^[0-9a-f]{64}$' then
     raise exception using errcode = 'P0001', message = 'INVALID_TRACK';
   end if;
@@ -1124,7 +1258,7 @@ begin
     title = excluded.title,
     artist = excluded.artist,
     duration_seconds = excluded.duration_seconds,
-    storage_path = excluded.storage_path,
+    storage_path = private.tracks.storage_path,
     source_url = excluded.source_url,
     enabled = true
   returning * into v_track;
@@ -1267,6 +1401,7 @@ $$;
 
 revoke all on function public.mark_round_audio_ready(text, uuid) from public, anon, authenticated;
 revoke all on function private.mark_round_audio_ready(text, uuid) from public, anon, authenticated;
+revoke all on function private.balanced_round_plan(integer) from public, anon, authenticated;
 grant execute on function private.mark_round_audio_ready(text, uuid) to authenticated;
 grant execute on function public.mark_round_audio_ready(text, uuid) to authenticated;
 
@@ -1284,7 +1419,7 @@ revoke all on function public.service_fail_round_preparation(uuid, text) from pu
 revoke all on function public.service_round_audio_access(text, uuid, uuid) from public, anon, authenticated;
 revoke all on function public.service_register_suno_track(text, text, integer, text, text, text) from public, anon, authenticated;
 
-grant usage on schema private to service_role;
+grant usage on schema public, private to service_role;
 grant execute on function private.service_claim_round_preparation(text, uuid, boolean) to service_role;
 grant execute on function private.service_get_cached_track(text, text, uuid) to service_role;
 grant execute on function private.service_complete_jamendo_round(uuid, text, text, text, integer, text, text, text, text[], text) to service_role;

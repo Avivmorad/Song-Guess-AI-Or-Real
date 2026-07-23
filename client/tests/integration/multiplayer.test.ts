@@ -194,6 +194,11 @@ describe.skipIf(!supabaseUrl || !supabaseKey || !serviceRoleKey)(
       );
       expect(hostPlaying.round?.correct_answer).toBeNull();
       expect(hostPlaying.round?.title).toBeNull();
+      expect(hostPlaying.round?.artist).toBeNull();
+      expect(hostPlaying.round?.provider).toBeNull();
+      expect(hostPlaying.round?.source_url).toBeNull();
+      expect(hostPlaying.round?.license_url).toBeNull();
+      expect(hostPlaying.round?.genres).toBeNull();
 
       const hostAnswer = await host.rpc("submit_answer", {
         p_code: roomCode,
@@ -226,10 +231,19 @@ describe.skipIf(!supabaseUrl || !supabaseKey || !serviceRoleKey)(
       expect(restoredState.round?.own_answer).toBe("real");
 
       const hostReveal = await waitForPhase(host, roomCode, "reveal");
-      expect(Date.now() - allSubmittedAt).toBeLessThan(7_000);
+      const earlyRevealDelay = Date.now() - allSubmittedAt;
+      expect(earlyRevealDelay).toBeGreaterThanOrEqual(2_500);
+      expect(earlyRevealDelay).toBeLessThan(7_000);
       const guestReveal = await stateFor(guest, roomCode);
       expect(hostReveal.round?.correct_answer).toMatch(/^(ai|real)$/);
       expect(hostReveal.round?.title).toBeTruthy();
+      expect(hostReveal.round?.artist).toBeTruthy();
+      expect(hostReveal.round?.provider).toBe("project");
+      expect(hostReveal.round?.source_url).toMatch(/^https:\/\//);
+      expect(hostReveal.round?.license_url).toBe(
+        "https://creativecommons.org/publicdomain/zero/1.0/",
+      );
+      expect(hostReveal.round?.genres).toEqual([]);
       expect(hostReveal.round?.reveal_description).toBeTruthy();
       expect(hostReveal.round_history).toHaveLength(1);
       const points = [

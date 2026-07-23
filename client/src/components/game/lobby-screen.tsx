@@ -369,7 +369,7 @@ export function LobbyScreen({
           {state.me.is_host && (
             <Button
               variant="secondary"
-              disabled={busyAction === "settings"}
+              disabled={busyAction !== null}
               onClick={() => void onSaveSettings(settings)}
             >
               {busyAction === "settings" ? (
@@ -389,7 +389,7 @@ export function LobbyScreen({
               state.me.is_ready ? "ready-toggle active" : "ready-toggle"
             }
             variant={state.me.is_ready ? "secondary" : "primary"}
-            disabled={busyAction === "ready"}
+            disabled={busyAction !== null}
             onClick={() => void onReady(!state.me.is_ready)}
           >
             {busyAction === "ready" ? (
@@ -403,7 +403,7 @@ export function LobbyScreen({
           {state.me.is_host && (
             <>
               <Button
-                disabled={!gate.canStart || busyAction === "start"}
+                disabled={!gate.canStart || busyAction !== null}
                 onClick={() => void onStart()}
               >
                 {busyAction === "start" ? (

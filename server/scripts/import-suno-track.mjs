@@ -5,8 +5,16 @@ import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 const MAX_AUDIO_BYTES = 50 * 1024 * 1024;
+const MAX_REDIRECTS = 5;
+const UNSUPPORTED_DOWNLOAD_HOSTS = [
+  "youtube.com",
+  "youtu.be",
+  "googlevideo.com",
+  "spotify.com",
+  "scdn.co",
+];
 
-for (const envPath of [".env.local", "../client/.env.local"]) {
+for (const envPath of [".env.local", "../.env.local", "../client/.env.local"]) {
   try {
     process.loadEnvFile(envPath);
   } catch {
@@ -72,44 +80,100 @@ function sanitizeMp3(input) {
   return output;
 }
 
+function isPrivateIpv4(host) {
+  const octets = host.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet)))
+    return false;
+  const [first, second] = octets;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    first >= 224 ||
+    (first === 100 && second >= 64 && second <= 127) ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 198 && (second === 18 || second === 19))
+  );
+}
+
 function validateRemoteUrl(raw) {
   const url = new URL(raw);
   if (url.protocol !== "https:")
     throw new Error("Direct downloads must use HTTPS.");
   const host = url.hostname.toLowerCase();
-  const ipVersion = isIP(host);
+  if (
+    UNSUPPORTED_DOWNLOAD_HOSTS.some(
+      (blocked) => host === blocked || host.endsWith(`.${blocked}`),
+    )
+  ) {
+    throw new Error("YouTube and Spotify downloads are not supported.");
+  }
+  const unwrappedHost =
+    host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  const ipVersion = isIP(unwrappedHost);
   if (
     host === "localhost" ||
+    host.endsWith(".localhost") ||
     host.endsWith(".local") ||
-    (ipVersion === 4 &&
-      /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(
-        host,
-      )) ||
+    (ipVersion === 4 && isPrivateIpv4(unwrappedHost)) ||
     (ipVersion === 6 &&
-      (host === "::1" ||
-        host.startsWith("fe80:") ||
-        host.startsWith("fc") ||
-        host.startsWith("fd")))
+      (unwrappedHost === "::" ||
+        unwrappedHost === "::1" ||
+        /^fe[89ab]/.test(unwrappedHost) ||
+        unwrappedHost.startsWith("fc") ||
+        unwrappedHost.startsWith("fd") ||
+        unwrappedHost.startsWith("::ffff:")))
   ) {
     throw new Error("Local and private-network download URLs are not allowed.");
   }
   return url;
 }
 
+async function fetchRemoteDownload(raw, signal) {
+  let url = validateRemoteUrl(raw);
+  for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
+    const response = await fetch(url, { signal, redirect: "manual" });
+    if (response.status < 300 || response.status >= 400) return response;
+    if (redirect === MAX_REDIRECTS)
+      throw new Error("The download redirected too many times.");
+    const location = response.headers.get("location");
+    if (!location) throw new Error("The download redirect was invalid.");
+    url = validateRemoteUrl(new URL(location, url));
+  }
+  throw new Error("The download redirected too many times.");
+}
+
+async function readBoundedBody(response) {
+  const declaredSize = Number(response.headers.get("content-length") || 0);
+  if (declaredSize > MAX_AUDIO_BYTES)
+    throw new Error("The file exceeds 50 MiB.");
+  if (!response.body) return Buffer.from(await response.arrayBuffer());
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_AUDIO_BYTES) {
+      await reader.cancel();
+      throw new Error("The file exceeds 50 MiB.");
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, size);
+}
+
 async function download(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
-    const response = await fetch(validateRemoteUrl(url), {
-      signal: controller.signal,
-      redirect: "follow",
-    });
+    const response = await fetchRemoteDownload(url, controller.signal);
     if (!response.ok)
       throw new Error(`Download failed with HTTP ${response.status}.`);
-    const declaredSize = Number(response.headers.get("content-length") || 0);
-    if (declaredSize > MAX_AUDIO_BYTES)
-      throw new Error("The file exceeds 50 MiB.");
-    return Buffer.from(await response.arrayBuffer());
+    return readBoundedBody(response);
   } finally {
     clearTimeout(timeout);
   }
@@ -129,7 +193,8 @@ async function main() {
   const sourceUrl = new URL(args["source-url"]);
   if (
     sourceUrl.protocol !== "https:" ||
-    !/(^|\.)suno\.com$/i.test(sourceUrl.hostname)
+    !/(^|\.)suno\.com$/i.test(sourceUrl.hostname) ||
+    !/^\/(song|playlist)\/[^/?#]+/i.test(sourceUrl.pathname)
   ) {
     throw new Error(
       "--source-url must be an HTTPS suno.com song or playlist URL.",
@@ -182,6 +247,16 @@ async function main() {
     });
     if (registration.error) throw registration.error;
     const track = registration.data;
+    if (track.storage_path !== storagePath) {
+      const cleanup = await client.storage
+        .from("track-audio")
+        .remove([storagePath]);
+      if (cleanup.error) {
+        process.stderr.write(
+          `Warning: duplicate upload cleanup failed: ${cleanup.error.message}\n`,
+        );
+      }
+    }
     process.stdout.write(
       `Imported ${track.title} by ${track.artist} (${track.track_id}).\n`,
     );
