@@ -55,6 +55,7 @@ export interface ActiveRound {
   submitted_count: number;
   own_answer: AnswerChoice | null;
   own_points: number | null;
+  answered_in_seconds: number | null;
   correct_answer: AnswerChoice | null;
   title: string | null;
   artist: string | null;
@@ -75,6 +76,9 @@ export interface PlayedTrackResult {
   provider: "project" | "jamendo" | "suno";
   source_url: string | null;
   license_url: string | null;
+  own_answer: AnswerChoice | null;
+  own_points: number;
+  was_correct: boolean;
 }
 
 export interface RoomState {
@@ -173,7 +177,10 @@ export function isRoomState(value: unknown): value is RoomState {
       hasNumber(item, "round_number") &&
       hasString(item, "title") &&
       hasString(item, "answer_type") &&
-      hasString(item, "provider"),
+      hasString(item, "provider") &&
+      (item.own_answer === null || hasString(item, "own_answer")) &&
+      hasNumber(item, "own_points") &&
+      typeof item.was_correct === "boolean",
   );
   return validPlayers && validHistory;
 }

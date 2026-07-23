@@ -21,16 +21,23 @@ export function Leaderboard({
         <li className={player.is_me ? "leader-me" : ""} key={player.id}>
           <span className="leader-rank">
             {index === 0 ? (
-              <CrownIcon aria-label="First place" />
+              <>
+                <CrownIcon aria-label="First place" />
+                <small>1st</small>
+              </>
             ) : (
               String(index + 1).padStart(2, "0")
             )}
           </span>
           <span className="leader-name">
             {player.nickname}
-            {player.is_me && <small>You</small>}
+            {player.is_me && (
+              <small>{player.is_host ? "You · Host" : "You"}</small>
+            )}
           </span>
-          <strong>{formatScore(player.score)}</strong>
+          <strong>
+            {formatScore(player.score)} <small>Points</small>
+          </strong>
         </li>
       ))}
     </ol>

@@ -1,6 +1,14 @@
 "use client";
 
-import { BoltIcon, CheckIcon, VolumeIcon } from "@/components/icons";
+import { useState } from "react";
+import {
+  BoltIcon,
+  CheckIcon,
+  PersonIcon,
+  RobotIcon,
+  VolumeIcon,
+  XIcon,
+} from "@/components/icons";
 import { Button, Panel, Spinner, StatusMessage } from "@/components/ui";
 import { useClock } from "@/hooks/use-clock";
 import { useSynchronizedAudio } from "@/hooks/use-synchronized-audio";
@@ -19,6 +27,7 @@ interface GameScreensProps {
   onAgain: () => Promise<boolean>;
   onAudioReady: (roundId: string) => Promise<boolean>;
   onRetryPreparation: () => Promise<boolean>;
+  onSkipPreparation: () => Promise<boolean>;
   onRemove: (playerId: string) => Promise<boolean>;
   onLeave: () => Promise<void>;
 }
@@ -26,6 +35,24 @@ interface GameScreensProps {
 function secondsBetween(endsAt: string | null, now: number, offset: number) {
   if (!endsAt) return 0;
   return Math.max(0, (new Date(endsAt).getTime() - (now + offset)) / 1000);
+}
+
+function answerLabel(choice: AnswerChoice | null) {
+  if (choice === "ai") return "MADE BY AI";
+  if (choice === "real") return "MADE BY HUMAN";
+  return "NO ANSWER";
+}
+
+function displayName(name: string) {
+  return name.length > 0 ? name[0].toUpperCase() + name.slice(1) : name;
+}
+
+function AnswerIcon({ choice }: { choice: AnswerChoice | null }) {
+  return choice === "ai" ? (
+    <RobotIcon aria-hidden="true" />
+  ) : (
+    <PersonIcon aria-hidden="true" />
+  );
 }
 
 function AudioStatus({
@@ -44,23 +71,23 @@ function AudioStatus({
   return (
     <div className="audio-status" role="status" aria-live="polite">
       <span className={`audio-dot audio-${audioState}`} />
-      <span>
-        {audioState === "loading" && "Preloading audio"}
-        {audioState === "ready" && "Audio ready"}
-        {audioState === "playing" && "Synchronized playback"}
-        {audioState === "blocked" && "Tap to start audio"}
-        {audioState === "error" && "Audio could not load"}
-        {audioState === "ended" && "Clip complete"}
-        {audioState === "idle" && "Waiting for track"}
+      <span className="audio-state-label">
+        {audioState === "loading" && "Loading Audio"}
+        {audioState === "ready" && "Audio Ready ✓"}
+        {audioState === "playing" && "Synced ✓"}
+        {audioState === "blocked" && "Tap to Start Audio"}
+        {audioState === "error" && "Audio Could Not Load"}
+        {audioState === "ended" && "Clip Complete"}
+        {audioState === "idle" && "Waiting for Track"}
       </span>
       {audioState === "blocked" && (
         <Button variant="secondary" onClick={() => void onActivate()}>
-          Play audio
+          Play Audio
         </Button>
       )}
       {audioState === "error" && (
         <Button variant="secondary" onClick={onRetry}>
-          Retry audio
+          Retry Audio
         </Button>
       )}
       <Button
@@ -69,9 +96,169 @@ function AudioStatus({
         onClick={onMute}
         aria-label={muted ? "Unmute music" : "Mute music"}
       >
-        <VolumeIcon aria-hidden="true" /> {muted ? "Muted" : "Sound on"}
+        <VolumeIcon aria-hidden="true" /> {muted ? "Muted" : "Sound On"}
       </Button>
     </div>
+  );
+}
+
+function PreparingScreen({
+  state,
+  now,
+  busyAction,
+  actionError,
+  preparationProgress,
+  onRetryPreparation,
+  onSkipPreparation,
+  onRemove,
+}: {
+  state: RoomState;
+  now: number;
+  busyAction: string | null;
+  actionError: string;
+  preparationProgress: PreparationProgress | null;
+  onRetryPreparation: () => Promise<boolean>;
+  onSkipPreparation: () => Promise<boolean>;
+  onRemove: (playerId: string) => Promise<boolean>;
+}) {
+  const [preparingStartedAt] = useState(() => Date.now());
+  const round = state.round;
+
+  if (!round) return null;
+
+  const failed =
+    preparationProgress?.stage === "failed" ||
+    round.preparation_status === "failed";
+  const total = preparationProgress?.total || round.total;
+  const serverReady = preparationProgress?.serverReady || 0;
+  const downloaded = preparationProgress?.downloaded || 0;
+  const downloading = preparationProgress?.stage === "download";
+  const playerReady = preparationProgress?.playerReady ?? 0;
+  const playerRequired = preparationProgress?.playerRequired ?? 0;
+  const timedOut = preparationProgress?.timedOut ?? false;
+  const takingLong = now - preparingStartedAt >= 17_000;
+  const locallyReady = downloading && total > 0 && downloaded >= total;
+  const everyoneReady =
+    locallyReady && playerRequired > 0 && playerReady >= playerRequired;
+  const stage = failed
+    ? "Preparation needs attention"
+    : serverReady < total
+      ? "Finding the next track"
+      : !locallyReady
+        ? "Loading the audio"
+        : playerReady < playerRequired
+          ? "Syncing all players"
+          : "Ready to play";
+
+  return (
+    <section
+      className="phase-screen preparing-screen"
+      aria-labelledby="preparing-title"
+    >
+      <div className="round-kicker">Preparing Round {round.number}</div>
+      <div
+        className={`preparation-spinner ${everyoneReady ? "preparation-ready" : ""}`}
+        aria-hidden="true"
+      >
+        {everyoneReady ? <CheckIcon /> : failed ? "!" : null}
+      </div>
+      <p className="loading-stage" aria-live="polite">
+        {stage}
+      </p>
+      <h1 id="preparing-title">
+        {failed
+          ? "This track needs another try."
+          : everyoneReady
+            ? "Track ready ✓"
+            : "Loading the next banger"}
+        {!failed && !everyoneReady && (
+          <span className="loading-dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+        )}
+      </h1>
+      <p>
+        {failed
+          ? "The game is paused so no one starts with broken audio."
+          : "The round will start automatically when the audio is ready for everyone."}
+      </p>
+      {!failed && downloading && (
+        <p className="loading-detail">
+          {downloaded}/{total} tracks downloaded to this device · {playerReady}/
+          {playerRequired} players synced
+        </p>
+      )}
+
+      {(takingLong || failed) && !timedOut && (
+        <Panel className="slow-loading" aria-live="polite">
+          <h2>This track is taking longer than expected.</h2>
+          {state.me.is_host ? (
+            <div className="recovery-actions">
+              <Button
+                disabled={busyAction === "retry"}
+                onClick={() => void onRetryPreparation()}
+              >
+                {busyAction === "retry" ? (
+                  <Spinner label="Trying again" />
+                ) : (
+                  "Try Again"
+                )}
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={busyAction === "skip"}
+                onClick={() => void onSkipPreparation()}
+              >
+                {busyAction === "skip" ? (
+                  <Spinner label="Skipping track" />
+                ) : (
+                  "Skip Track"
+                )}
+              </Button>
+            </div>
+          ) : (
+            <p>Waiting for the host to recover the track.</p>
+          )}
+        </Panel>
+      )}
+
+      {timedOut && state.me.is_host && (
+        <Panel className="preparation-timeout">
+          <h2>Some players are still loading.</h2>
+          <p>The game is paused. Try again or remove a stalled player.</p>
+          <Button
+            disabled={busyAction === "retry"}
+            onClick={() => void onRetryPreparation()}
+          >
+            {busyAction === "retry" ? (
+              <Spinner label="Retrying preparation" />
+            ) : (
+              "Try Again"
+            )}
+          </Button>
+          {(preparationProgress?.stalledPlayers ?? []).map((player) => (
+            <div className="stalled-player" key={player.id}>
+              <span>{player.nickname}</span>
+              <Button
+                variant="secondary"
+                disabled={busyAction === "remove"}
+                onClick={() => void onRemove(player.id)}
+              >
+                Remove Player
+              </Button>
+            </div>
+          ))}
+        </Panel>
+      )}
+      {timedOut && !state.me.is_host && (
+        <p className="waiting-host">
+          Loading timed out. The host is choosing how to continue.
+        </p>
+      )}
+      {actionError && <StatusMessage>{actionError}</StatusMessage>}
+    </section>
   );
 }
 
@@ -85,6 +272,7 @@ export function GameScreens({
   onAgain,
   onAudioReady,
   onRetryPreparation,
+  onSkipPreparation,
   onRemove,
   onLeave,
 }: GameScreensProps) {
@@ -105,108 +293,18 @@ export function GameScreens({
   });
 
   if (state.room.phase === "preparing" && round) {
-    const failed =
-      preparationProgress?.stage === "failed" ||
-      round.preparation_status === "failed";
-    const total = preparationProgress?.total || round.total;
-    const serverReady = preparationProgress?.serverReady || 0;
-    const downloaded = preparationProgress?.downloaded || 0;
-    const downloading = preparationProgress?.stage === "download";
-    const timedOut = preparationProgress?.timedOut ?? false;
-    const percent =
-      total > 0
-        ? Math.round(((downloading ? downloaded : serverReady) / total) * 100)
-        : 0;
     return (
-      <section
-        className="phase-screen preparing-screen"
-        aria-labelledby="preparing-title"
-      >
-        <div className="round-kicker">Preparing all {round.total} rounds</div>
-        <div
-          className="preparation-orb"
-          aria-hidden="true"
-          style={
-            { "--preparation-progress": `${percent}%` } as React.CSSProperties
-          }
-        >
-          {!failed && <strong>{percent}%</strong>}
-          {failed && "!"}
-        </div>
-        <p className="eyebrow">One download before the game</p>
-        <h1 id="preparing-title">
-          {failed
-            ? "The playlist could not be prepared."
-            : downloading
-              ? "Downloading your complete playlist."
-              : "Finding and caching every song."}
-        </h1>
-        <p aria-live="polite">
-          {failed
-            ? "Nothing will start with broken audio. The host can safely retry."
-            : downloading
-              ? `${downloaded}/${total} songs downloaded to this device.`
-              : `${serverReady}/${total} songs prepared. Rounds will start without more download pauses.`}
-        </p>
-        {!failed && preparationProgress && (
-          <p>
-            {preparationProgress.playerReady}/
-            {preparationProgress.playerRequired} players ready.
-          </p>
-        )}
-        {timedOut && state.me.is_host && (
-          <Panel className="preparation-timeout">
-            <h2>Some players are still loading.</h2>
-            <p>
-              The game is paused. Retry downloads or remove a stalled player.
-            </p>
-            <Button
-              disabled={busyAction === "retry"}
-              onClick={() => void onRetryPreparation()}
-            >
-              {busyAction === "retry" ? (
-                <Spinner label="Retrying preparation" />
-              ) : (
-                "Retry missing audio"
-              )}
-            </Button>
-            {(preparationProgress?.stalledPlayers ?? []).map((player) => (
-              <div className="stalled-player" key={player.id}>
-                <span>{player.nickname}</span>
-                <Button
-                  variant="secondary"
-                  disabled={busyAction === "remove"}
-                  onClick={() => void onRemove(player.id)}
-                >
-                  Remove player
-                </Button>
-              </div>
-            ))}
-          </Panel>
-        )}
-        {timedOut && !state.me.is_host && (
-          <p className="waiting-host">
-            Loading timed out. The game is paused while the host decides what to
-            do.
-          </p>
-        )}
-        {failed && state.me.is_host && (
-          <Button
-            disabled={busyAction === "retry"}
-            onClick={() => void onRetryPreparation()}
-          >
-            {busyAction === "retry" ? (
-              <Spinner label="Retrying track preparation" />
-            ) : (
-              "Retry playlist preparation"
-            )}
-          </Button>
-        )}
-        {failed && !state.me.is_host && (
-          <p className="waiting-host">Waiting for the host to retry.</p>
-        )}
-        {actionError && <StatusMessage>{actionError}</StatusMessage>}
-      </section>
+      <PreparingScreen
+        key={round.id}
+        state={state}
+        now={now}
+        busyAction={busyAction}
+        actionError={actionError}
+        preparationProgress={preparationProgress}
+        onRetryPreparation={onRetryPreparation}
+        onSkipPreparation={onSkipPreparation}
+        onRemove={onRemove}
+      />
     );
   }
 
@@ -220,12 +318,12 @@ export function GameScreens({
           Round {round?.number || state.room.current_round} of{" "}
           {state.room.settings.round_count}
         </div>
-        <p className="eyebrow">Get ready</p>
+        <p className="eyebrow">Get Ready</p>
         <h1 id="countdown-title">Listen closely.</h1>
         <output className="countdown-value" aria-live="assertive">
           {Math.max(1, Math.ceil(remaining))}
         </output>
-        <p>The clip begins at the same server timestamp for everyone.</p>
+        <p>Everyone hears the track at the same time.</p>
         <AudioStatus
           audioState={audio.audioState}
           muted={audio.muted}
@@ -241,10 +339,8 @@ export function GameScreens({
     const selected = round.own_answer;
     const locked =
       Boolean(selected) && !state.room.settings.allow_answer_changes;
-    const timerRatio = Math.max(
-      0,
-      Math.min(1, remaining / state.room.settings.round_duration_seconds),
-    );
+    const timeUp = remaining <= 0;
+    const finalFive = remaining > 0 && remaining <= 5;
     return (
       <section
         className="phase-screen playing-screen"
@@ -252,41 +348,45 @@ export function GameScreens({
       >
         <div className="game-status-row">
           <span>
-            Round {round.number}/{round.total}
+            Round {round.number} of {round.total}
           </span>
           <span>
             <BoltIcon aria-hidden="true" />{" "}
             {formatScore(
               state.leaderboard.find((player) => player.is_me)?.score || 0,
             )}{" "}
-            pts
+            Points
           </span>
         </div>
         <Panel className="now-playing-card">
           <div className="now-playing-heading">
             <div>
-              <p className="eyebrow">Now playing</p>
-              <h1 id="playing-title">Who made this?</h1>
+              <p className="eyebrow">Now Playing</p>
+              <h1 id="playing-title">Who made this track?</h1>
             </div>
             <div
-              className="round-timer"
+              className={`round-timer ${finalFive ? "timer-urgent" : ""} ${remaining < 1 ? "timer-final" : ""}`}
               aria-label={`${remaining.toFixed(1)} seconds remaining`}
             >
-              <strong>{remaining.toFixed(1)}</strong>
-              <span>sec</span>
+              <strong>{Math.ceil(remaining)}</strong>
+              <span>Seconds</span>
             </div>
           </div>
-          <div className="timer-track" aria-hidden="true">
-            <i style={{ width: `${timerRatio * 100}%` }} />
-          </div>
-          <div className="audio-visualizer" aria-hidden="true">
+          <div
+            className={`audio-visualizer ${audio.audioState === "playing" ? "is-playing" : ""}`}
+            aria-hidden="true"
+          >
             {Array.from({ length: 24 }, (_, index) => (
               <i key={index} />
             ))}
           </div>
           <div
             className="audio-progress"
-            aria-label={`${Math.round(audio.progress * 100)} percent of audio played`}
+            role="progressbar"
+            aria-label="Track playback"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(audio.progress * 100)}
           >
             <i style={{ width: `${audio.progress * 100}%` }} />
           </div>
@@ -302,28 +402,28 @@ export function GameScreens({
         <div className="answer-grid" aria-label="Choose who made the track">
           <Button
             className={`answer-button answer-ai ${selected === "ai" ? "selected" : ""}`}
-            disabled={locked || busyAction === "answer"}
+            disabled={locked || timeUp || busyAction === "answer"}
             onClick={() => void onAnswer("ai")}
             aria-pressed={selected === "ai"}
+            aria-label="Made by AI"
           >
-            <span className="answer-symbol">◈</span>
-            <span>
-              <small>Machine origin</small>
-              <strong>AI MADE</strong>
+            <span className="answer-symbol">
+              <RobotIcon aria-hidden="true" />
             </span>
+            <strong>Made by AI</strong>
             {selected === "ai" && <CheckIcon aria-label="Selected" />}
           </Button>
           <Button
             className={`answer-button answer-real ${selected === "real" ? "selected" : ""}`}
-            disabled={locked || busyAction === "answer"}
+            disabled={locked || timeUp || busyAction === "answer"}
             onClick={() => void onAnswer("real")}
             aria-pressed={selected === "real"}
+            aria-label="Made by human"
           >
-            <span className="answer-symbol">♥</span>
-            <span>
-              <small>Human origin</small>
-              <strong>REAL / HUMAN</strong>
+            <span className="answer-symbol">
+              <PersonIcon aria-hidden="true" />
             </span>
+            <strong>Made by Human</strong>
             {selected === "real" && <CheckIcon aria-label="Selected" />}
           </Button>
         </div>
@@ -331,16 +431,21 @@ export function GameScreens({
         <div className="submission-status" aria-live="polite">
           {busyAction === "answer" ? (
             <Spinner label="Submitting answer" />
+          ) : timeUp ? (
+            <strong>Time’s up</strong>
           ) : selected ? (
             <>
-              <CheckIcon aria-hidden="true" /> Answer{" "}
-              {locked ? "locked" : "selected — you can still change it"}
+              <CheckIcon aria-hidden="true" />{" "}
+              {locked ? "Answer locked ✓" : "Answer selected ✓"}
+              {!locked && (
+                <small>Tap another option to change your answer.</small>
+              )}
             </>
           ) : (
             "Choose before the timer reaches zero."
           )}
           <span>
-            {round.submitted_count}/{state.players.length} submitted
+            {round.submitted_count}/{state.players.length} answered
           </span>
         </div>
         {actionError && <StatusMessage>{actionError}</StatusMessage>}
@@ -352,87 +457,113 @@ export function GameScreens({
     const correct =
       round.own_answer !== null && round.own_answer === round.correct_answer;
     const points = round.own_points || 0;
+    const revealRatio = Math.max(
+      0,
+      Math.min(1, remaining / state.room.settings.reveal_duration_seconds),
+    );
     return (
       <section
-        className="phase-screen reveal-screen"
+        className={`phase-screen reveal-screen ${correct ? "result-correct" : "result-incorrect"}`}
         aria-labelledby="reveal-title"
       >
-        <div className="round-kicker">
-          Round {round.number} revealed · {remaining.toFixed(1)}s
-        </div>
+        <div className="round-kicker">Round {round.number} Result</div>
+        {round.answered_in_seconds !== null && (
+          <p className="answer-time">
+            Answered in {round.answered_in_seconds.toFixed(1)} seconds
+          </p>
+        )}
         <div
           className={`reveal-orb reveal-${round.correct_answer}`}
           aria-hidden="true"
         >
-          {round.correct_answer === "ai" ? "◈" : "♥"}
+          <AnswerIcon choice={round.correct_answer} />
         </div>
-        <p className="eyebrow">Correct answer</p>
-        <h1 id="reveal-title">
-          {round.correct_answer === "ai" ? "AI MADE" : "HUMAN MADE"}
-        </h1>
-        <p className="track-reveal">
-          <strong>{round.title}</strong>
-          {round.artist ? ` · ${round.artist}` : ""}
-        </p>
+        <p className="eyebrow">Correct Answer</p>
+        <h1 id="reveal-title">{answerLabel(round.correct_answer)}</h1>
         <div
-          className={`points-result ${points < 0 ? "points-negative" : ""}`}
+          className={`player-result ${correct ? "is-correct" : "is-incorrect"}`}
           role="status"
         >
-          {round.own_answer === null
-            ? "No answer · 0 points"
-            : `${correct ? "Correct" : "Not this time"} · ${points > 0 ? "+" : ""}${formatScore(points)} points`}
-        </div>
-        <Panel className="reveal-note">
-          <p>{round.reveal_description}</p>
-          <small>{round.license_note}</small>
-          {(round.source_url || round.license_url) && (
-            <div className="source-links">
-              {round.source_url && (
-                <a href={round.source_url} target="_blank" rel="noreferrer">
-                  Song source
-                </a>
-              )}
-              {round.license_url && (
-                <a href={round.license_url} target="_blank" rel="noreferrer">
-                  License
-                </a>
-              )}
-            </div>
+          <strong>
+            {round.own_answer === null ? (
+              "NO ANSWER"
+            ) : correct ? (
+              <>
+                <CheckIcon aria-hidden="true" /> Correct ✓
+              </>
+            ) : (
+              <>
+                <XIcon aria-hidden="true" /> Incorrect
+              </>
+            )}
+          </strong>
+          {round.own_answer !== null && !correct && (
+            <span>You chose: {answerLabel(round.own_answer)}</span>
           )}
-        </Panel>
+          <span>
+            {points > 0 ? "+" : points < 0 ? "−" : ""}
+            {formatScore(Math.abs(points))} points
+          </span>
+        </div>
+        <div className="track-reveal">
+          <strong>{round.title}</strong>
+          <span>by {round.artist || "Unknown artist"}</span>
+        </div>
+        {round.source_url && (
+          <a
+            className="song-link-button"
+            href={round.source_url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Song Link – Listen Now
+          </a>
+        )}
         <div className="reveal-board">
           <div className="section-row">
             <div>
-              <p className="eyebrow">Live ranking</p>
+              <p className="eyebrow">Live Ranking</p>
               <h2>Leaderboard</h2>
             </div>
           </div>
           <Leaderboard players={state.leaderboard} compact />
+        </div>
+        <div className="next-round-status" role="status">
+          <span>
+            {round.number >= round.total
+              ? `Final results in ${Math.max(1, Math.ceil(remaining))}...`
+              : `Next round starts in ${Math.max(1, Math.ceil(remaining))}...`}
+          </span>
+          <div aria-hidden="true">
+            <i style={{ width: `${revealRatio * 100}%` }} />
+          </div>
         </div>
       </section>
     );
   }
 
   if (state.room.phase === "intermission") {
+    const intermissionRatio = Math.max(0, Math.min(1, remaining / 4));
     return (
       <section
         className="phase-screen intermission-screen"
         aria-labelledby="intermission-title"
       >
-        <p className="eyebrow">Score check</p>
+        <p className="eyebrow">Leaderboard</p>
         <h1 id="intermission-title">
-          Next track in {Math.max(1, Math.ceil(remaining))}
+          Next round starts in {Math.max(1, Math.ceil(remaining))}...
         </h1>
+        <div className="intermission-progress" aria-hidden="true">
+          <i style={{ width: `${intermissionRatio * 100}%` }} />
+        </div>
         <Leaderboard players={state.leaderboard} />
-        <p className="intermission-note">
-          Stay sharp. Speed matters as much as accuracy.
-        </p>
       </section>
     );
   }
 
   if (state.room.phase === "finished") {
     const winner = state.leaderboard[0];
+    const me = state.leaderboard.find((player) => player.is_me);
     return (
       <section
         className="phase-screen final-screen"
@@ -445,33 +576,52 @@ export function GameScreens({
           <i />
           <i />
         </div>
-        <p className="eyebrow">Final results</p>
+        <p className="eyebrow">Final Results</p>
         <h1 id="final-title">
-          {winner ? `${winner.nickname} takes the room.` : "Game complete."}
-        </h1>
-        <p>
           {winner
-            ? `${formatScore(winner.score)} points and the sharpest ears tonight.`
-            : "No final scores were recorded."}
-        </p>
+            ? `${displayName(winner.nickname)} wins the game!`
+            : "Game complete!"}
+        </h1>
+        {winner && (
+          <p className="winner-summary">
+            {formatScore(winner.score)} points · 1st place
+            <small>The sharpest ears tonight.</small>
+          </p>
+        )}
         <Leaderboard players={state.leaderboard} />
         {state.round_history.length > 0 && (
           <Panel className="final-song-list">
-            <p className="eyebrow">Songs played</p>
-            <h2>Round history</h2>
+            <p className="eyebrow">Game History</p>
+            <h2>Round Results</h2>
             <ol>
               {state.round_history.map((song) => (
                 <li key={song.round_number}>
-                  <span>
+                  <span className="history-round">
+                    Round {song.round_number}
+                  </span>
+                  <span className="history-track">
                     <strong>{song.title}</strong>
+                    <small>by {song.artist || "Unknown artist"}</small>
+                  </span>
+                  <span className="history-result">
+                    <strong>{answerLabel(song.answer_type)}</strong>
                     <small>
-                      {song.artist || "Unknown artist"} ·{" "}
-                      {song.answer_type === "ai" ? "AI made" : "Human made"}
+                      {song.was_correct ? "Correct ✓" : "Incorrect ✕"} ·{" "}
+                      {song.own_points > 0
+                        ? "+"
+                        : song.own_points < 0
+                          ? "−"
+                          : ""}
+                      {formatScore(Math.abs(song.own_points))} points
                     </small>
                   </span>
                   {song.source_url && (
-                    <a href={song.source_url} target="_blank" rel="noreferrer">
-                      Source
+                    <a
+                      href={song.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Listen Now
                     </a>
                   )}
                 </li>
@@ -482,16 +632,19 @@ export function GameScreens({
         {actionError && <StatusMessage>{actionError}</StatusMessage>}
         <div className="final-actions">
           {state.me.is_host ? (
-            <Button
-              disabled={busyAction === "again"}
-              onClick={() => void onAgain()}
-            >
-              {busyAction === "again" ? (
-                <Spinner label="Resetting room" />
-              ) : (
-                "Play again with this room"
-              )}
-            </Button>
+            <div className="play-again-action">
+              <Button
+                disabled={busyAction === "again"}
+                onClick={() => void onAgain()}
+              >
+                {busyAction === "again" ? (
+                  <Spinner label="Resetting room" />
+                ) : (
+                  "Play Again"
+                )}
+              </Button>
+              <small>Keep the same room and players</small>
+            </div>
           ) : (
             <p className="waiting-host">
               Waiting for the host to start another game.
@@ -502,9 +655,14 @@ export function GameScreens({
             disabled={busyAction === "leave"}
             onClick={() => void onLeave()}
           >
-            Leave room
+            Back to Home
           </Button>
         </div>
+        {me && me.id !== winner?.id && (
+          <p className="your-final-score">
+            Your score: {formatScore(me.score)} points
+          </p>
+        )}
       </section>
     );
   }

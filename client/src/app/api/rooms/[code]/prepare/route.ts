@@ -1,5 +1,8 @@
 import { authenticateRequest } from "@/lib/server/supabase-admin";
-import { prepareGameTracks } from "@/lib/server/track-preparation";
+import {
+  prepareGameTracks,
+  skipGameTrack,
+} from "@/lib/server/track-preparation";
 
 export const runtime = "nodejs";
 export const maxDuration = 45;
@@ -18,6 +21,9 @@ function safeError(error: unknown) {
   if (raw.includes("NOT_IN_ROOM")) return [403, "NOT_IN_ROOM"] as const;
   if (raw.includes("HOST_ONLY")) return [403, "HOST_ONLY"] as const;
   if (raw.includes("ROOM_NOT_FOUND")) return [404, "ROOM_NOT_FOUND"] as const;
+  if (raw.includes("SKIP_NOT_AVAILABLE")) {
+    return [409, "SKIP_NOT_AVAILABLE"] as const;
+  }
   if (raw.includes("SERVER_BACKEND_NOT_CONFIGURED")) {
     return [503, "PREPARATION_NOT_CONFIGURED"] as const;
   }
@@ -31,7 +37,10 @@ export async function POST(
   try {
     const user = await authenticateRequest(request);
     const { code } = await context.params;
-    const forceRetry = new URL(request.url).searchParams.get("retry") === "1";
+    const searchParams = new URL(request.url).searchParams;
+    const skip = searchParams.get("skip") === "1";
+    const forceRetry = searchParams.get("retry") === "1" || skip;
+    if (skip) await skipGameTrack(code, user.id);
     const result = await prepareGameTracks(code, user.id, forceRetry);
     const status =
       result.status === "failed"

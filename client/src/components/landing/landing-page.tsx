@@ -29,15 +29,15 @@ export function LandingPage() {
         <section className="hero">
           <div className="hero-copy">
             <p className="eyebrow">
-              <span /> Live music deception
+              <span /> AI Music Showdown
             </p>
             <h1>
-              Trust your ears.
-              <span>Question everything.</span>
+              Banger or Bot?
+              <span>Can you hear the difference?</span>
             </h1>
             <p className="hero-summary">
-              A real-time music showdown. Listen together, decide who made the
-              track, and score faster than your friends.
+              Listen to the track, decide if it was made by a human or AI, and
+              beat your friends to the answer.
             </p>
             <div className="hero-form">
               <Field
@@ -58,16 +58,16 @@ export function LandingPage() {
               />
               <div className="hero-actions">
                 <Button onClick={() => continueTo("/create")}>
-                  Create a room <ArrowIcon aria-hidden="true" />
+                  Host a Game <ArrowIcon aria-hidden="true" />
                 </Button>
                 <Button variant="secondary" onClick={() => continueTo("/join")}>
-                  Join with a code
+                  Join a Game
                 </Button>
               </div>
             </div>
             <div className="hero-proof" aria-label="Game highlights">
               <span>
-                <UserIcon aria-hidden="true" /> 2–8 players
+                <UserIcon aria-hidden="true" /> 1–8 players
               </span>
               <span>
                 <VolumeIcon aria-hidden="true" /> Live synchronized audio
@@ -92,63 +92,61 @@ export function LandingPage() {
               <div className="visual-question">
                 <span>Now playing</span>
                 <strong>
-                  Human instinct
+                  Banger
                   <br />
-                  or machine precision?
+                  or Bot?
                 </strong>
               </div>
             </div>
             <span className="sticker sticker-ai">
-              AI
+              BOT
               <br />
               MADE?
             </span>
             <span className="sticker sticker-real">
-              REAL
+              HUMAN
               <br />
-              DEAL?
+              MADE?
             </span>
           </div>
         </section>
       </div>
 
-      <section className="how-section" id="how-to-play">
+      <section className="how-section" aria-labelledby="guide-title">
         <div className="section-heading">
           <p className="eyebrow">
-            <span /> Three beats to glory
+            <span /> Quick Start
           </p>
-          <h2>Hear it. Call it. Own the leaderboard.</h2>
+          <h2 id="guide-title">Start playing in a few taps.</h2>
         </div>
-        <ol className="how-grid">
-          <li>
-            <span>01</span>
-            <h3>Get the room together</h3>
-            <p>
-              Share a six-character code and ready up with as many as eight
-              players.
-            </p>
-          </li>
-          <li>
-            <span>02</span>
-            <h3>Listen, then commit</h3>
-            <p>
-              Every browser gets the same clip and deadline. Pick AI made or
-              human made.
-            </p>
-          </li>
-          <li>
-            <span>03</span>
-            <h3>Reveal and rank</h3>
-            <p>
-              Correct calls earn 1,000 points plus a speed bonus. Hesitation
-              costs.
-            </p>
-          </li>
-        </ol>
+        <div className="guide-grid">
+          <article className="guide-card" id="how-to-play">
+            <p className="eyebrow">How to Play</p>
+            <h3>Hear it. Choose. Score.</h3>
+            <ol>
+              <li>Join a room</li>
+              <li>Listen to the track</li>
+              <li>Choose who made it</li>
+              <li>Answer before time runs out</li>
+              <li>Earn points and climb the leaderboard</li>
+            </ol>
+          </article>
+          <article className="guide-card" id="how-to-host">
+            <p className="eyebrow">How to Host</p>
+            <h3>Set up and bring your friends.</h3>
+            <ol>
+              <li>Pick a nickname</li>
+              <li>Create a room</li>
+              <li>Share the room code or invite link</li>
+              <li>Wait for players and confirm they are ready</li>
+              <li>Start the game</li>
+            </ol>
+          </article>
+        </div>
       </section>
 
       <footer className="site-footer">
-        <p>Song Guess: AI Or Real</p>
+        <p>Banger or Bot</p>
         <span>Original demo music · No commercial recordings</span>
       </footer>
     </main>

@@ -13,17 +13,17 @@ export default async function CreatePage({
       <SiteHeader />
       <div className="entry-heading">
         <p className="eyebrow">
-          <span /> Host a game
+          <span /> Host a Game
         </p>
-        <h1>Build your listening room.</h1>
+        <h1>Set up your Banger or Bot room.</h1>
         <p>
-          Pick the format, invite your people, and press play when everyone is
-          ready.
+          Choose the game settings, invite your friends, and start when everyone
+          is ready.
         </p>
       </div>
       <CreateRoomForm initialNickname={nickname} />
       <Link className="back-link" href="/">
-        ← Back home
+        ← Back to Home
       </Link>
     </main>
   );

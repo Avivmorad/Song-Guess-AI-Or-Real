@@ -19,15 +19,13 @@ function trackRuntimeFailures(page: Page) {
 }
 
 async function activateBlockedAudio(page: Page) {
-  const play = page.getByRole("button", { name: "Play audio" });
+  const play = page.getByRole("button", { name: "Play Audio" });
   if (await play.isVisible().catch(() => false)) await play.click();
 }
 
 async function waitForRoundOrRetry(host: Page) {
-  const heading = host.getByRole("heading", { name: "Who made this?" });
-  const retry = host.getByRole("button", {
-    name: "Retry playlist preparation",
-  });
+  const heading = host.getByRole("heading", { name: "Who made this track?" });
+  const retry = host.getByRole("button", { name: "Try Again" }).first();
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const outcome = await Promise.race([
       heading
@@ -44,9 +42,7 @@ async function waitForRoundOrRetry(host: Page) {
 }
 
 async function waitForDownloadFailure(host: Page) {
-  const retry = host.getByRole("button", {
-    name: "Retry playlist preparation",
-  });
+  const retry = host.getByRole("button", { name: "Try Again" }).first();
   const alert = host.locator(".status-message[role='alert']").last();
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await expect(retry).toBeVisible({ timeout: 120_000 });
@@ -61,10 +57,15 @@ async function waitForDownloadFailure(host: Page) {
 
 async function saveSettingsAndWait(page: Page) {
   const demoOption = page
-    .getByLabel("Song pack")
+    .getByLabel("Music library")
     .locator('option[value="demo"]');
   const needsTestPackOverride = (await demoOption.count()) === 0;
-  const save = page.getByRole("button", { name: "Save settings" });
+  const save = page.getByRole("button", { name: "Save Settings" });
+  if (await save.isDisabled()) {
+    const revealDuration = page.getByLabel("Reveal duration");
+    const current = await revealDuration.inputValue();
+    await revealDuration.selectOption(current === "4" ? "5" : "4");
+  }
   const response = page.waitForResponse(
     (candidate) =>
       candidate.url().includes("/rest/v1/rpc/update_settings") &&
@@ -95,7 +96,7 @@ async function saveSettingsAndWait(page: Page) {
 }
 
 async function selectDemoPackWhenAvailable(page: Page) {
-  const songPack = page.getByLabel("Song pack");
+  const songPack = page.getByLabel("Music library");
   await expect(songPack).toBeVisible();
   const demoOption = songPack.locator('option[value="demo"]');
   if ((await demoOption.count()) > 0) {
@@ -118,41 +119,39 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
 
   await host.goto(`${baseURL}/create`);
   await host.getByLabel("Nickname").fill("E2E Host");
-  await host.getByLabel("Rounds").selectOption("3");
-  await host.getByLabel("Answer time").selectOption("10");
-  await host.getByRole("button", { name: "Open the lobby" }).click();
+  await host.getByLabel("Number of rounds").selectOption("3");
+  await host.getByLabel("Time per round").selectOption("10");
+  await host.getByRole("button", { name: "Create Room & Open Lobby" }).click();
   await expect(host).toHaveURL(/\/room\/[A-HJ-NP-Z2-9]{6}$/);
   const code = (await host.locator(".room-code").textContent())!.trim();
 
   await guest.goto(`${baseURL}/join?code=${code}`);
   await guest.getByLabel("Nickname").fill("E2E Guest");
-  await guest.getByRole("button", { name: "Join room" }).click();
+  await guest.getByRole("button", { name: "Join Game" }).click();
   await expect(guest).toHaveURL(new RegExp(`/room/${code}$`));
   await expect(host.getByText("E2E Guest", { exact: true })).toBeVisible();
 
-  await host.getByLabel("Reveal time").selectOption("4");
+  await host.getByLabel("Reveal duration").selectOption("4");
   await selectDemoPackWhenAvailable(host);
   await saveSettingsAndWait(host);
 
   await Promise.all([
-    host.getByRole("button", { name: "I’m ready" }).click(),
-    guest.getByRole("button", { name: "I’m ready" }).click(),
+    host.getByRole("button", { name: "Mark as Ready" }).click(),
+    guest.getByRole("button", { name: "Mark as Ready" }).click(),
   ]);
-  await expect(
-    host.getByRole("button", { name: "Start the game" }),
-  ).toBeEnabled();
-  await host.getByRole("button", { name: "Start the game" }).click();
+  await expect(host.getByRole("button", { name: "Start Game" })).toBeEnabled();
+  await host.getByRole("button", { name: "Start Game" }).click();
 
   for (let round = 1; round <= 3; round += 1) {
     if (round === 1) {
       await expect(host.locator(".preparing-screen")).toBeVisible({
         timeout: 20_000,
       });
-      await expect(host.getByText("Preparing all 3 rounds")).toBeVisible();
+      await expect(host.getByText("Preparing Round 1")).toBeVisible();
     }
     await waitForRoundOrRetry(host);
     await expect(
-      guest.getByRole("heading", { name: "Who made this?" }),
+      guest.getByRole("heading", { name: "Who made this track?" }),
     ).toBeVisible({ timeout: 30_000 });
     await Promise.all([
       activateBlockedAudio(host),
@@ -170,23 +169,24 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
     }
 
     await Promise.all([
-      expect(host.getByText("Correct answer", { exact: true })).toBeVisible({
+      expect(host.getByText("Correct Answer", { exact: true })).toBeVisible({
         timeout: 18_000,
       }),
-      expect(guest.getByText("Correct answer", { exact: true })).toBeVisible({
+      expect(guest.getByText("Correct Answer", { exact: true })).toBeVisible({
         timeout: 18_000,
       }),
     ]);
     if (round === 3) {
-      await expect(guest.getByText("No answer · 0 points")).toBeVisible();
+      await expect(guest.getByText("NO ANSWER", { exact: true })).toBeVisible();
+      await expect(guest.getByText("0 points", { exact: true })).toBeVisible();
     }
   }
 
   await Promise.all([
-    expect(host.getByText("Final results", { exact: true })).toBeVisible({
+    expect(host.getByText("Final Results", { exact: true })).toBeVisible({
       timeout: 12_000,
     }),
-    expect(guest.getByText("Final results", { exact: true })).toBeVisible({
+    expect(guest.getByText("Final Results", { exact: true })).toBeVisible({
       timeout: 12_000,
     }),
   ]);
@@ -195,7 +195,7 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
   ).toHaveCount(2);
   await expect(host.locator(".final-song-list li")).toHaveCount(3);
   await expect(host.locator(".final-song-list a")).toHaveCount(3);
-  await host.getByRole("button", { name: "Play again with this room" }).click();
+  await host.getByRole("button", { name: "Play Again" }).click();
   await Promise.all([
     expect(host.getByRole("heading", { name: "Players" })).toBeVisible(),
     expect(guest.getByRole("heading", { name: "Players" })).toBeVisible(),
@@ -223,37 +223,73 @@ test("one player completes a full game with prepared rounds", async ({
   });
   await page.goto(`${baseURL}/create`);
   await page.getByLabel("Nickname").fill("E2E Solo");
-  await page.getByLabel("Rounds").selectOption("3");
-  await page.getByLabel("Answer time").selectOption("10");
-  await page.getByRole("button", { name: "Open the lobby" }).click();
+  await page.getByLabel("Number of rounds").selectOption("3");
+  await page.getByLabel("Time per round").selectOption("10");
+  await page.getByRole("button", { name: "Create Room & Open Lobby" }).click();
   await expect(page).toHaveURL(/\/room\/[A-HJ-NP-Z2-9]{6}$/);
 
   await selectDemoPackWhenAvailable(page);
   await saveSettingsAndWait(page);
-  await page.getByRole("button", { name: "I’m ready" }).click();
-  await expect(
-    page.getByRole("button", { name: "Start the game" }),
-  ).toBeEnabled();
-  await page.getByRole("button", { name: "Start the game" }).click();
+  await page.getByRole("button", { name: "Mark as Ready" }).click();
+  await expect(page.getByRole("button", { name: "Start Game" })).toBeEnabled();
+  await page.getByRole("button", { name: "Start Game" }).click();
   await expect(page.locator(".preparing-screen")).toBeVisible();
-  await expect(page.getByText("Preparing all 3 rounds")).toBeVisible();
+  await expect(page.getByText("Preparing Round 1")).toBeVisible();
 
   for (let round = 1; round <= 3; round += 1) {
     await waitForRoundOrRetry(page);
     await activateBlockedAudio(page);
     await page.locator(".answer-real").click();
-    await expect(page.getByText("Correct answer", { exact: true })).toBeVisible(
+    await expect(page.getByText("Correct Answer", { exact: true })).toBeVisible(
       { timeout: 12_000 },
     );
   }
 
-  await expect(page.getByText("Final results", { exact: true })).toBeVisible({
+  await expect(page.getByText("Final Results", { exact: true })).toBeVisible({
     timeout: 12_000,
   });
   await expect(page.locator(".final-song-list li")).toHaveCount(3);
   await expect(page.locator(".final-song-list a")).toHaveCount(3);
   expect(playlistRequests).toBe(1);
   expect(perRoundAudioRequests).toBe(0);
+});
+
+test("host can skip a stalled track without refreshing", async ({
+  page,
+  baseURL,
+}) => {
+  test.setTimeout(180_000);
+  await grantPreviewAccess(page);
+  let stallFirstTrack = true;
+  await page.route("**/audio/*.wav", async (route) => {
+    if (!stallFirstTrack) {
+      await route.continue();
+      return;
+    }
+    stallFirstTrack = false;
+    await new Promise((resolve) => setTimeout(resolve, 25_000));
+    await route.continue().catch(() => undefined);
+  });
+
+  await page.goto(`${baseURL}/create`);
+  await page.getByLabel("Nickname").fill("Skip Host");
+  await page.getByLabel("Number of rounds").selectOption("3");
+  await page.getByLabel("Time per round").selectOption("10");
+  await page.getByRole("button", { name: "Create Room & Open Lobby" }).click();
+  await selectDemoPackWhenAvailable(page);
+  await saveSettingsAndWait(page);
+  await page.getByRole("button", { name: "Mark as Ready" }).click();
+  await page.getByRole("button", { name: "Start Game" }).click();
+
+  await expect(
+    page.getByRole("heading", {
+      name: "This track is taking longer than expected.",
+    }),
+  ).toBeVisible({ timeout: 25_000 });
+  await page.getByRole("button", { name: "Skip Track" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Who made this track?" }),
+  ).toBeVisible({ timeout: 90_000 });
 });
 
 test("host recovers after a player misses the preload deadline", async ({
@@ -277,35 +313,33 @@ test("host recovers after a player misses the preload deadline", async ({
 
   await host.goto(`${baseURL}/create`);
   await host.getByLabel("Nickname").fill("Timeout Host");
-  await host.getByLabel("Rounds").selectOption("3");
-  await host.getByLabel("Answer time").selectOption("10");
-  await host.getByRole("button", { name: "Open the lobby" }).click();
+  await host.getByLabel("Number of rounds").selectOption("3");
+  await host.getByLabel("Time per round").selectOption("10");
+  await host.getByRole("button", { name: "Create Room & Open Lobby" }).click();
   const code = (await host.locator(".room-code").textContent())!.trim();
 
   await guest.goto(`${baseURL}/join?code=${code}`);
   await guest.getByLabel("Nickname").fill("Stalled Guest");
-  await guest.getByRole("button", { name: "Join room" }).click();
+  await guest.getByRole("button", { name: "Join Game" }).click();
   await expect(host.getByText("Stalled Guest", { exact: true })).toBeVisible();
   await selectDemoPackWhenAvailable(host);
   await saveSettingsAndWait(host);
   await Promise.all([
-    host.getByRole("button", { name: "I’m ready" }).click(),
-    guest.getByRole("button", { name: "I’m ready" }).click(),
+    host.getByRole("button", { name: "Mark as Ready" }).click(),
+    guest.getByRole("button", { name: "Mark as Ready" }).click(),
   ]);
-  await host.getByRole("button", { name: "Start the game" }).click();
+  await host.getByRole("button", { name: "Start Game" }).click();
 
   await expect(
     host.getByRole("heading", { name: "Some players are still loading." }),
   ).toBeVisible({ timeout: 80_000 });
   await expect(host.getByText("Stalled Guest", { exact: true })).toBeVisible();
+  await expect(host.getByRole("button", { name: "Try Again" })).toBeVisible();
+  await host.getByRole("button", { name: "Remove Player" }).click();
   await expect(
-    host.getByRole("button", { name: "Retry missing audio" }),
-  ).toBeVisible();
-  await host.getByRole("button", { name: "Remove player" }).click();
-  await expect(
-    host.getByRole("heading", { name: "Who made this?" }),
+    host.getByRole("heading", { name: "Who made this track?" }),
   ).toBeVisible({ timeout: 30_000 });
-  await expect(host.getByRole("button", { name: "Play audio" })).toBeVisible();
+  await expect(host.getByRole("button", { name: "Play Audio" })).toBeVisible();
 
   await Promise.all([hostContext.close(), guestContext.close()]);
 });
@@ -331,6 +365,49 @@ test("mobile keyboard flow reports an invalid room without overflow", async ({
   expect(overflow).toBe(false);
 });
 
+test("home and room creation stay usable at common phone widths", async ({
+  page,
+  baseURL,
+}) => {
+  await grantPreviewAccess(page);
+  for (const width of [320, 360, 390, 430]) {
+    await page.setViewportSize({ width, height: 780 });
+    await page.goto(`${baseURL}/`);
+    await expect(
+      page.getByRole("heading", {
+        name: "Banger or Bot? Can you hear the difference?",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Host a Game" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Join a Game" }),
+    ).toBeVisible();
+    await expect(page.getByText("1–8 players", { exact: true })).toBeVisible();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+    expect(overflow, `homepage overflows at ${width}px`).toBe(false);
+  }
+
+  await page.setViewportSize({ width: 320, height: 780 });
+  await page.goto(`${baseURL}/create`);
+  const create = page.getByRole("button", {
+    name: "Create Room & Open Lobby",
+  });
+  await expect(create).toBeDisabled();
+  await page.getByLabel("Nickname").fill("Mobile Host");
+  await expect(create).toBeEnabled();
+  await expect(
+    page.getByText("6 rounds · 20 seconds · Penalty on", { exact: true }),
+  ).toBeVisible();
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > window.innerWidth,
+  );
+  expect(overflow).toBe(false);
+});
+
 test("audio loading failures produce an accessible recovery message", async ({
   browser,
   baseURL,
@@ -345,13 +422,13 @@ test("audio loading failures produce an accessible recovery message", async ({
   await grantPreviewAccess(page);
   await page.goto(`${baseURL}/create`);
   await page.getByLabel("Nickname").fill("Audio Tester");
-  await page.getByLabel("Rounds").selectOption("3");
-  await page.getByRole("button", { name: "Open the lobby" }).click();
+  await page.getByLabel("Number of rounds").selectOption("3");
+  await page.getByRole("button", { name: "Create Room & Open Lobby" }).click();
   await expect(page).toHaveURL(/\/room\/[A-HJ-NP-Z2-9]{6}$/);
   await selectDemoPackWhenAvailable(page);
   await saveSettingsAndWait(page);
-  await page.getByRole("button", { name: "I’m ready" }).click();
-  await page.getByRole("button", { name: "Start the game" }).click();
+  await page.getByRole("button", { name: "Mark as Ready" }).click();
+  await page.getByRole("button", { name: "Start Game" }).click();
   await waitForDownloadFailure(page);
   await context.close();
 });

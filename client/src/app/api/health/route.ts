@@ -5,7 +5,7 @@ export function GET() {
   return NextResponse.json(
     {
       status: "ok",
-      application: "Song Guess: AI Or Real",
+      application: "Banger or Bot",
       multiplayer: isBackendConfigured()
         ? "configured"
         : "configuration-required",

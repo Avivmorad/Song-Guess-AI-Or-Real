@@ -10,6 +10,9 @@ interface CachedAudio {
 const roomAudio = new Map<string, Map<string, CachedAudio>>();
 const roomLoads = new Map<string, Promise<Map<string, CachedAudio>>>();
 const roomExpectedTracks = new Map<string, number>();
+const roomPlaylistRevision = new Map<string, number>();
+const roomCacheGeneration = new Map<string, number>();
+const roomAbortControllers = new Map<string, Set<AbortController>>();
 let sharedGameAudio: HTMLAudioElement | null = null;
 
 const SILENT_WAV =
@@ -53,8 +56,30 @@ export async function unlockGameAudio() {
   }
 }
 
+export async function playAudioTest() {
+  const audio = getGameAudioElement();
+  const previousVolume = audio.volume;
+  audio.src = "/audio/track-001.wav";
+  audio.volume = 0.25;
+  try {
+    await audio.play();
+    await new Promise<void>((resolve) => {
+      globalThis.setTimeout(resolve, 1_200);
+    });
+    audio.pause();
+    audio.currentTime = 0;
+  } finally {
+    audio.volume = previousVolume;
+  }
+}
+
 export function clearGameAudioCache(code: string) {
   const key = normalizedRoomCode(code);
+  roomCacheGeneration.set(key, (roomCacheGeneration.get(key) ?? 0) + 1);
+  for (const controller of roomAbortControllers.get(key) ?? []) {
+    controller.abort();
+  }
+  roomAbortControllers.delete(key);
   const cached = roomAudio.get(key);
   if (cached) {
     for (const audio of cached.values()) URL.revokeObjectURL(audio.objectUrl);
@@ -62,6 +87,7 @@ export function clearGameAudioCache(code: string) {
   roomAudio.delete(key);
   roomLoads.delete(key);
   roomExpectedTracks.delete(key);
+  roomPlaylistRevision.delete(key);
   if (sharedGameAudio) {
     sharedGameAudio.pause();
     sharedGameAudio.src = "";
@@ -111,9 +137,17 @@ async function verifyCachedAudioIsPlayable(
 
 export async function prefetchGameAudio(
   code: string,
+  playlistRevision = 1,
   onProgress?: (downloaded: number, total: number) => void,
 ) {
   const key = normalizedRoomCode(code);
+  if (
+    roomPlaylistRevision.has(key) &&
+    roomPlaylistRevision.get(key) !== playlistRevision
+  ) {
+    clearGameAudioCache(key);
+  }
+  roomPlaylistRevision.set(key, playlistRevision);
   const existing = roomAudio.get(key);
   const expected = roomExpectedTracks.get(key);
   if (existing && expected !== undefined && existing.size === expected) {
@@ -122,6 +156,9 @@ export async function prefetchGameAudio(
   }
   const active = roomLoads.get(key);
   if (active) return active;
+  const generation = roomCacheGeneration.get(key) ?? 0;
+  const cacheIsCurrent = () =>
+    (roomCacheGeneration.get(key) ?? 0) === generation;
 
   const load = (async () => {
     const playlist = await getGameAudioPlaylist(key);
@@ -139,6 +176,10 @@ export async function prefetchGameAudio(
           const track = queue.shift();
           if (!track) return;
           const controller = new AbortController();
+          const controllers =
+            roomAbortControllers.get(key) ?? new Set<AbortController>();
+          controllers.add(controller);
+          roomAbortControllers.set(key, controllers);
           const timeout = globalThis.setTimeout(
             () => controller.abort(),
             20_000,
@@ -156,7 +197,10 @@ export async function prefetchGameAudio(
             throw new Error("AUDIO_DOWNLOAD_FAILED");
           } finally {
             globalThis.clearTimeout(timeout);
+            controllers.delete(controller);
+            if (controllers.size === 0) roomAbortControllers.delete(key);
           }
+          if (!cacheIsCurrent()) throw new Error("AUDIO_CACHE_INVALIDATED");
           downloaded.set(track.round_id, {
             objectUrl: URL.createObjectURL(blob),
             byteLength: blob.size,
@@ -168,7 +212,9 @@ export async function prefetchGameAudio(
       await Promise.all(
         Array.from({ length: Math.min(3, playlist.length) }, () => worker()),
       );
+      if (!cacheIsCurrent()) throw new Error("AUDIO_CACHE_INVALIDATED");
       await verifyCachedAudioIsPlayable(downloaded);
+      if (!cacheIsCurrent()) throw new Error("AUDIO_CACHE_INVALIDATED");
       roomAudio.set(key, downloaded);
       return downloaded;
     } catch (error) {

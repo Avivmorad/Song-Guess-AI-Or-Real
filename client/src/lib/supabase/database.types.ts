@@ -73,6 +73,7 @@ export type Database = {
       };
       games: {
         Row: {
+          audio_playlist_revision: number;
           audio_preload_deadline: string | null;
           created_at: string;
           finished_at: string | null;
@@ -84,6 +85,7 @@ export type Database = {
           status: string;
         };
         Insert: {
+          audio_playlist_revision?: number;
           audio_preload_deadline?: string | null;
           created_at?: string;
           finished_at?: string | null;
@@ -95,6 +97,7 @@ export type Database = {
           status?: string;
         };
         Update: {
+          audio_playlist_revision?: number;
           audio_preload_deadline?: string | null;
           created_at?: string;
           finished_at?: string | null;
@@ -402,6 +405,10 @@ export type Database = {
       };
       remove_player: {
         Args: { p_code: string; p_player_id: string };
+        Returns: Json;
+      };
+      service_skip_game_track: {
+        Args: { p_code: string; p_user_id: string };
         Returns: Json;
       };
       set_ready: { Args: { p_code: string; p_ready: boolean }; Returns: Json };

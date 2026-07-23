@@ -49,6 +49,52 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+export function XIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m6 6 12 12M18 6 6 18" />
+    </IconBase>
+  );
+}
+
+export function RobotIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="4" y="7" width="16" height="12" rx="3" />
+      <path d="M12 3v4M9 3h6M8 12h.01M16 12h.01M8 16h8" />
+    </IconBase>
+  );
+}
+
+export function PersonIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="7" r="3" />
+      <path d="M5 21v-2a7 7 0 0 1 14 0v2M9 14l3 3 3-3" />
+    </IconBase>
+  );
+}
+
+export function InfoIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v6M12 7h.01" />
+    </IconBase>
+  );
+}
+
+export function ShareIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="18" cy="5" r="2" />
+      <circle cx="6" cy="12" r="2" />
+      <circle cx="18" cy="19" r="2" />
+      <path d="m8 11 8-5M8 13l8 5" />
+    </IconBase>
+  );
+}
+
 export function VolumeIcon(props: IconProps) {
   return (
     <IconBase {...props}>
