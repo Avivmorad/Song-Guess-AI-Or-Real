@@ -12,7 +12,7 @@ every round resolves from authoritative server time and scoring.
 
 - Anonymous create/join flow for up to eight players
 - Live lobby, ready states, host settings, player removal, and host transfer
-- Synchronized audio rounds with one locked answer per player
+- Per-round private audio preparation with synchronized player readiness
 - Server-authoritative deadlines, scoring, reveals, and leaderboard ordering
 - Reconnect support, absent-answer handling, final results, and play again
 - Responsive keyboard-accessible UI with reduced-motion support
@@ -22,8 +22,8 @@ every round resolves from authoritative server time and scoring.
 
 The repository is intentionally split by responsibility:
 
-- `client/` — Next.js App Router application, browser game client, public audio,
-  unit/integration/browser tests, and generated database types
+- `client/` — Next.js App Router application, browser game client, trusted track
+  preparation routes, unit/integration/browser tests, and generated database types
 - `server/` — Supabase migrations, database tests, local configuration, and track
   administration documentation
 
@@ -50,6 +50,8 @@ Copy the root `.env.example` to `client/.env.local` and set:
 NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVER_ONLY_SERVICE_ROLE_KEY
+JAMENDO_CLIENT_ID=YOUR_JAMENDO_CLIENT_ID
 ```
 
 Enable Anonymous Sign-Ins in Supabase Auth, apply the migrations under
@@ -82,9 +84,14 @@ to an existing deployment. SQL pgTAP coverage lives in
 
 ## Game rules and scoring
 
-The host chooses the round count, answer duration, reveal duration, whether
-wrong answers lose points, and the track pack. All players must be ready before
-the host starts.
+The host chooses the round count, answer duration, reveal duration, and whether
+wrong answers lose points. A single ready player can start solo; every player
+present in a multiplayer room must be connected and ready.
+
+Each game receives a hidden balanced real/AI plan. Real rounds download eligible
+Creative Commons tracks from Jamendo. AI rounds select only enabled owned Suno
+exports imported through `server/TRACKS.md`. Audio is cached in private Supabase
+Storage and acknowledged by every connected browser before countdown begins.
 
 - Correct answer: 1,000 base points plus up to 2,000 speed points
 - Wrong answer: 0 points, or -500 when negative scoring is enabled
@@ -115,9 +122,10 @@ job. Do not expose that operation or any service-role credential to the client.
 
 The production Vercel project is named `song-guess-ai-or-real`, uses `client/`
 as its root directory, and deploys `main` to production. Pull requests receive
-isolated preview deployments through the GitHub integration. Configure the same
-three public Supabase variables in Vercel for Production, Preview, and
-Development; never add private database or service-role secrets.
+isolated preview deployments through the GitHub integration. Configure the
+public variables plus the server-only `SUPABASE_SERVICE_ROLE_KEY` and
+`JAMENDO_CLIENT_ID` in Vercel for Production, Preview, and Development. Never
+prefix either secret with `NEXT_PUBLIC_`.
 
 The deployed game uses a dedicated Supabase project named
 `Song Guess: AI Or Real`. It does not share resources or credentials with other
@@ -125,8 +133,10 @@ applications.
 
 ## Known limitations
 
-- The included catalog is a small six-track demo pack intended for the shipped
-  game loop; add licensed tracks through the documented server-side workflow.
+- The six original project tracks are local/test fixtures and are not selected
+  by the production dynamic pack.
+- Jamendo audio stays cached until manually removed; automatic cache eviction is
+  not included yet.
 - Anonymous Auth is convenient for a party game but should be paired with
   Supabase rate limits and CAPTCHA before operating at untrusted public scale.
 - Automatic expired-room cleanup requires an external trusted schedule.

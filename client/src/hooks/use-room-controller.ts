@@ -7,7 +7,9 @@ import {
   getRoomState,
   heartbeat,
   leaveRoom,
+  markRoundAudioReady,
   playAgain,
+  prepareRound,
   removePlayer,
   setReady,
   startGame,
@@ -22,9 +24,11 @@ type ActionName =
   | "settings"
   | "start"
   | "answer"
+  | "audio"
   | "remove"
   | "leave"
   | "again"
+  | "retry"
   | null;
 
 export function useRoomController(code: string) {
@@ -35,7 +39,14 @@ export function useRoomController(code: string) {
   const [busyAction, setBusyAction] = useState<ActionName>(null);
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
   const refreshInFlight = useRef(false);
+  const preparationInFlight = useRef(false);
   const mounted = useRef(true);
+  const preparationRoundId =
+    state?.room.phase === "preparing" ? state.round?.id : null;
+  const preparationStatus =
+    state?.room.phase === "preparing"
+      ? state.round?.preparation_status
+      : undefined;
 
   const acceptState = useCallback(
     (nextState: RoomState, startedAt = Date.now()) => {
@@ -104,6 +115,38 @@ export function useRoomController(code: string) {
   }, [refresh, state?.room.phase]);
 
   useEffect(() => {
+    if (!preparationRoundId) return;
+    if (preparationStatus === "ready" || preparationStatus === "failed") {
+      return;
+    }
+    const requestPreparation = async () => {
+      if (preparationInFlight.current) return;
+      preparationInFlight.current = true;
+      try {
+        const result = await prepareRound(code);
+        if (result.status === "failed") {
+          setActionError(
+            new GameApiError(result.error_code || "PREPARATION_FAILED").message,
+          );
+        } else {
+          await refresh(false);
+        }
+      } catch (error) {
+        const gameError =
+          error instanceof GameApiError
+            ? error
+            : new GameApiError("PREPARATION_FAILED");
+        setActionError(gameError.message);
+      } finally {
+        preparationInFlight.current = false;
+      }
+    };
+    void requestPreparation();
+    const interval = window.setInterval(() => void requestPreparation(), 5_000);
+    return () => window.clearInterval(interval);
+  }, [code, preparationRoundId, preparationStatus, refresh]);
+
+  useEffect(() => {
     const interval = window.setInterval(() => void refresh(true), 10_000);
     return () => window.clearInterval(interval);
   }, [refresh]);
@@ -164,6 +207,32 @@ export function useRoomController(code: string) {
     beginGame: () => runAction("start", () => startGame(code)),
     answer: (choice: AnswerChoice) =>
       runAction("answer", () => submitAnswer(code, choice)),
+    reportAudioReady: (roundId: string) =>
+      runAction("audio", () => markRoundAudioReady(code, roundId)),
+    retryPreparation: async () => {
+      setBusyAction("retry");
+      setActionError("");
+      try {
+        const result = await prepareRound(code, true);
+        if (result.status === "failed") {
+          setActionError(
+            new GameApiError(result.error_code || "PREPARATION_FAILED").message,
+          );
+          return false;
+        }
+        await refresh(false);
+        return true;
+      } catch (error) {
+        const gameError =
+          error instanceof GameApiError
+            ? error
+            : new GameApiError("PREPARATION_FAILED");
+        setActionError(gameError.message);
+        return false;
+      } finally {
+        setBusyAction(null);
+      }
+    },
     remove: (playerId: string) =>
       runAction("remove", () => removePlayer(code, playerId)),
     again: () => runAction("again", () => playAgain(code)),

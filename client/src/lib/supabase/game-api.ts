@@ -7,12 +7,18 @@ import {
   type RoomState,
 } from "@/lib/game/types";
 import { ensureAnonymousSession, getSupabaseBrowserClient } from "./client";
-import type { Database } from "./database.types";
-
-type RoomRpcName = Exclude<
-  keyof Database["public"]["Functions"],
-  "admin_list_tracks" | "admin_upsert_track"
->;
+type RoomRpcName =
+  | "create_room"
+  | "join_room"
+  | "get_room_state"
+  | "heartbeat"
+  | "set_ready"
+  | "update_settings"
+  | "start_game"
+  | "submit_answer"
+  | "remove_player"
+  | "play_again"
+  | "mark_round_audio_ready";
 
 const safeMessages: Record<string, string> = {
   AUTH_REQUIRED: "Your game session expired. Refresh and try again.",
@@ -29,6 +35,7 @@ const safeMessages: Record<string, string> = {
   HOST_ONLY: "Only the room host can do that.",
   NEED_TWO_PLAYERS: "At least two players are required.",
   PLAYERS_NOT_READY: "Every connected player must be ready.",
+  NOT_ENOUGH_AI_TRACKS: "Import at least one owned Suno track before starting.",
   NOT_ENOUGH_TRACKS: "That song pack does not have enough enabled tracks.",
   ANSWER_WINDOW_CLOSED: "The answer window is closed.",
   ANSWER_LOCKED: "Your answer is locked for this round.",
@@ -37,6 +44,16 @@ const safeMessages: Record<string, string> = {
   GAME_NOT_FINISHED: "Finish the current game before playing again.",
   INVALID_SETTINGS: "One or more game settings are invalid.",
   INVALID_RESPONSE: "The game service returned an invalid response.",
+  ROUND_NOT_ACTIVE: "That round is no longer active.",
+  AUDIO_NOT_READY: "The round audio is still preparing.",
+  PREPARATION_FAILED:
+    "The next track could not be prepared. The host can retry.",
+  PREPARATION_NOT_CONFIGURED:
+    "Track preparation is not configured on the server.",
+  JAMENDO_NOT_CONFIGURED: "Jamendo is not configured on the server.",
+  PREPARATION_TIMEOUT: "Track preparation timed out. The host can retry.",
+  NO_ELIGIBLE_JAMENDO_TRACK:
+    "No downloadable Jamendo track was available. The host can retry.",
 };
 
 export class GameApiError extends Error {
@@ -134,6 +151,71 @@ export async function submitAnswer(
   choice: AnswerChoice,
 ): Promise<RoomState> {
   return rpcRoomState("submit_answer", { p_code: code, p_choice: choice });
+}
+
+export async function markRoundAudioReady(
+  code: string,
+  roundId: string,
+): Promise<RoomState> {
+  return rpcRoomState("mark_round_audio_ready", {
+    p_code: code,
+    p_round_id: roundId,
+  });
+}
+
+async function authenticatedFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+): Promise<Response> {
+  await ensureAnonymousSession();
+  const client = getSupabaseBrowserClient();
+  const { data, error } = await client.auth.getSession();
+  if (error || !data.session) throw new GameApiError("AUTH_REQUIRED");
+  return fetch(input, {
+    ...init,
+    headers: {
+      ...init.headers,
+      Authorization: `Bearer ${data.session.access_token}`,
+    },
+  });
+}
+
+export interface PreparationResponse {
+  status: "claimed" | "preparing" | "ready" | "failed" | string;
+  round_id?: string;
+  error_code?: string;
+}
+
+export async function prepareRound(
+  code: string,
+  forceRetry = false,
+): Promise<PreparationResponse> {
+  const response = await authenticatedFetch(
+    `/api/rooms/${encodeURIComponent(code)}/prepare${forceRetry ? "?retry=1" : ""}`,
+    { method: "POST" },
+  );
+  const payload = (await response.json()) as PreparationResponse;
+  if (!response.ok && response.status !== 503) {
+    throw new GameApiError(payload.error_code || "PREPARATION_FAILED");
+  }
+  return payload;
+}
+
+export async function getRoundAudioUrl(
+  code: string,
+  roundId: string,
+): Promise<string> {
+  const response = await authenticatedFetch(
+    `/api/rooms/${encodeURIComponent(code)}/rounds/${encodeURIComponent(roundId)}/audio`,
+  );
+  const payload = (await response.json()) as {
+    audio_url?: string;
+    error_code?: string;
+  };
+  if (!response.ok || !payload.audio_url) {
+    throw new GameApiError(payload.error_code || "AUDIO_NOT_READY");
+  }
+  return payload.audio_url;
 }
 
 export async function removePlayer(

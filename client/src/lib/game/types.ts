@@ -1,7 +1,15 @@
 export type AnswerChoice = "ai" | "real";
 
 export type RoomPhase =
-  "lobby" | "countdown" | "playing" | "reveal" | "intermission" | "finished";
+  | "lobby"
+  | "preparing"
+  | "countdown"
+  | "playing"
+  | "reveal"
+  | "intermission"
+  | "finished";
+
+export type PreparationStatus = "pending" | "preparing" | "ready" | "failed";
 
 export interface GameSettings {
   round_count: number;
@@ -35,10 +43,15 @@ export interface ActiveRound {
   id: string;
   number: number;
   total: number;
-  starts_at: string;
-  deadline_at: string;
-  audio_url: string;
-  audio_duration_seconds: number;
+  starts_at: string | null;
+  deadline_at: string | null;
+  audio_url: string | null;
+  audio_available: boolean;
+  audio_duration_seconds: number | null;
+  preparation_status: PreparationStatus;
+  preparation_error: string | null;
+  audio_ready_count: number;
+  audio_required_count: number;
   submitted_count: number;
   own_answer: AnswerChoice | null;
   own_points: number | null;
@@ -46,8 +59,22 @@ export interface ActiveRound {
   title: string | null;
   artist: string | null;
   source_type: string | null;
+  provider: "project" | "jamendo" | "suno" | null;
+  source_url: string | null;
+  license_url: string | null;
+  genres: string[] | null;
   reveal_description: string | null;
   license_note: string | null;
+}
+
+export interface PlayedTrackResult {
+  round_number: number;
+  title: string;
+  artist: string | null;
+  answer_type: AnswerChoice;
+  provider: "project" | "jamendo" | "suno";
+  source_url: string | null;
+  license_url: string | null;
 }
 
 export interface RoomState {
@@ -69,6 +96,7 @@ export interface RoomState {
   };
   players: RoomPlayer[];
   round: ActiveRound | null;
+  round_history: PlayedTrackResult[];
   leaderboard: LeaderboardPlayer[];
 }
 
@@ -79,11 +107,12 @@ export const DEFAULT_SETTINGS: GameSettings = {
   negative_points: true,
   allow_answer_changes: false,
   music_volume: 0.8,
-  song_pack: "demo",
+  song_pack: "dynamic",
 };
 
 const phases = new Set<RoomPhase>([
   "lobby",
+  "preparing",
   "countdown",
   "playing",
   "reveal",
@@ -121,12 +150,13 @@ export function isRoomState(value: unknown): value is RoomState {
     typeof me.is_host !== "boolean" ||
     typeof me.is_ready !== "boolean" ||
     !Array.isArray(value.players) ||
+    !Array.isArray(value.round_history) ||
     !Array.isArray(value.leaderboard)
   ) {
     return false;
   }
 
-  return value.players.every(
+  const validPlayers = value.players.every(
     (player) =>
       isRecord(player) &&
       hasString(player, "id") &&
@@ -137,6 +167,15 @@ export function isRoomState(value: unknown): value is RoomState {
       typeof player.is_connected === "boolean" &&
       typeof player.has_submitted === "boolean",
   );
+  const validHistory = value.round_history.every(
+    (item) =>
+      isRecord(item) &&
+      hasNumber(item, "round_number") &&
+      hasString(item, "title") &&
+      hasString(item, "answer_type") &&
+      hasString(item, "provider"),
+  );
+  return validPlayers && validHistory;
 }
 
 export function normalizeRoomCode(value: string): string {

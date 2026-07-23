@@ -44,6 +44,12 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
   await expect(host.getByText("E2E Guest", { exact: true })).toBeVisible();
 
   await host.getByLabel("Reveal time").selectOption("4");
+  const demoOption = host
+    .getByLabel("Song pack")
+    .locator('option[value="demo"]');
+  if ((await demoOption.count()) > 0) {
+    await host.getByLabel("Song pack").selectOption("demo");
+  }
   await host.getByRole("button", { name: "Save settings" }).click();
   await expect(
     host.getByRole("button", { name: "Save settings" }),
@@ -63,6 +69,9 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
   await host.getByRole("button", { name: "Start the game" }).click();
 
   for (let round = 1; round <= 3; round += 1) {
+    await expect(host.locator(".preparing-screen")).toBeVisible({
+      timeout: 20_000,
+    });
     await Promise.all([
       expect(host.getByRole("heading", { name: "Who made this?" })).toBeVisible(
         {
@@ -114,6 +123,7 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
   await expect(
     host.getByRole("list", { name: "Leaderboard" }).getByRole("listitem"),
   ).toHaveCount(2);
+  await expect(host.locator(".final-song-list li")).toHaveCount(3);
   await host.getByRole("button", { name: "Play again with this room" }).click();
   await Promise.all([
     expect(host.getByRole("heading", { name: "Players" })).toBeVisible(),
@@ -151,14 +161,26 @@ test("audio loading failures produce an accessible recovery message", async ({
 }) => {
   const context = await browser.newContext();
   await context.route("**/audio/*.wav", (route) => route.abort("failed"));
+  await context.route("**/storage/v1/object/sign/track-audio/**", (route) =>
+    route.abort("failed"),
+  );
   const page = await context.newPage();
   await page.goto(`${baseURL}/create`);
   await page.getByLabel("Nickname").fill("Audio Tester");
   await page.getByLabel("Rounds").selectOption("3");
   await page.getByRole("button", { name: "Open the lobby" }).click();
+  const demoOption = page
+    .getByLabel("Song pack")
+    .locator('option[value="demo"]');
+  if ((await demoOption.count()) > 0) {
+    await page.getByLabel("Song pack").selectOption("demo");
+  }
+  await page.getByRole("button", { name: "Save settings" }).click();
   await page.getByRole("button", { name: "Enable audio" }).click();
-  await expect(page.locator(".audio-check [role='alert']")).toContainText(
-    "Audio is blocked",
-  );
+  await page.getByRole("button", { name: "I’m ready" }).click();
+  await page.getByRole("button", { name: "Start the game" }).click();
+  await expect(page.getByRole("button", { name: "Retry audio" })).toBeVisible({
+    timeout: 20_000,
+  });
   await context.close();
 });

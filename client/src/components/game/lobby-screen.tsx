@@ -22,14 +22,24 @@ function AudioCheck() {
   const [failed, setFailed] = useState(false);
 
   async function enableAudio() {
-    const audio = new Audio("/audio/track-001.wav");
-    audio.volume = 0.015;
     try {
-      await audio.play();
-      window.setTimeout(() => {
-        audio.pause();
-        audio.currentTime = 0;
-      }, 80);
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!AudioContextClass) throw new Error("WEB_AUDIO_UNAVAILABLE");
+      const context = new AudioContextClass();
+      await context.resume();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      gain.gain.value = 0.015;
+      oscillator.frequency.value = 440;
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.08);
+      oscillator.addEventListener("ended", () => void context.close(), {
+        once: true,
+      });
       setEnabled(true);
       setFailed(false);
     } catch {
@@ -85,6 +95,7 @@ export function LobbyScreen({
   ).length;
   const ready = state.players.filter((player) => player.is_ready).length;
   const shownSettings = state.me.is_host ? settings : state.room.settings;
+  const demoTracksEnabled = process.env.NODE_ENV !== "production";
 
   const shareUrl = `${typeof window === "undefined" ? "" : window.location.origin}/join?code=${state.room.code}`;
 
@@ -289,9 +300,15 @@ export function LobbyScreen({
               <select
                 className="input"
                 value={shownSettings.song_pack}
-                disabled
+                disabled={!state.me.is_host || !demoTracksEnabled}
+                onChange={(event) =>
+                  setSettings({ ...settings, song_pack: event.target.value })
+                }
               >
-                <option value="demo">Original demo pack</option>
+                <option value="dynamic">Jamendo + owned Suno</option>
+                {demoTracksEnabled && (
+                  <option value="demo">Local demo fixtures</option>
+                )}
               </select>
             </label>
             <label className="switch-row">

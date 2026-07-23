@@ -7,6 +7,7 @@ const supabaseUrl =
 const supabaseKey =
   process.env.E2E_SUPABASE_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+const serviceRoleKey = process.env.E2E_SUPABASE_SERVICE_ROLE_KEY;
 
 function isolatedClient(): SupabaseClient {
   if (!supabaseUrl || !supabaseKey) {
@@ -48,6 +49,32 @@ async function waitForPhase(
   throw new Error(`Timed out waiting for phase ${phase}`);
 }
 
+async function prepareDemoRound(
+  admin: SupabaseClient,
+  host: SupabaseClient,
+  players: SupabaseClient[],
+  code: string,
+): Promise<RoomState> {
+  const preparing = await waitForPhase(host, code, "preparing");
+  const user = (await host.auth.getUser()).data.user;
+  expect(user).not.toBeNull();
+  const prepared = await admin.rpc("service_claim_round_preparation", {
+    p_code: code,
+    p_user_id: user!.id,
+    p_force_retry: false,
+  });
+  expect(prepared.error).toBeNull();
+  expect((prepared.data as { status: string }).status).toBe("ready");
+  for (const player of players) {
+    const ready = await player.rpc("mark_round_audio_ready", {
+      p_code: code,
+      p_round_id: preparing.round!.id,
+    });
+    expect(ready.error).toBeNull();
+  }
+  return waitForPhase(host, code, "playing");
+}
+
 async function expectRpcError(
   client: SupabaseClient,
   name: string,
@@ -58,12 +85,18 @@ async function expectRpcError(
   expect(error?.message).toContain(code);
 }
 
-describe.skipIf(!supabaseUrl || !supabaseKey)(
+describe.skipIf(!supabaseUrl || !supabaseKey || !serviceRoleKey)(
   "hosted multiplayer contract",
   () => {
     const host = isolatedClient();
     const guest = isolatedClient();
     const duplicate = isolatedClient();
+    const admin =
+      supabaseUrl && serviceRoleKey
+        ? createClient(supabaseUrl, serviceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false },
+          })
+        : null;
     let roomCode = "";
 
     beforeAll(async () => {
@@ -143,12 +176,17 @@ describe.skipIf(!supabaseUrl || !supabaseKey)(
 
       const started = await host.rpc("start_game", { p_code: roomCode });
       expect(started.error).toBeNull();
-      expect((started.data as RoomState).room.phase).toBe("countdown");
+      expect((started.data as RoomState).room.phase).toBe("preparing");
 
       const directRead = await guest.from("answers").select("*");
       expect(directRead.error).not.toBeNull();
 
-      const hostPlaying = await waitForPhase(host, roomCode, "playing");
+      const hostPlaying = await prepareDemoRound(
+        admin!,
+        host,
+        [host, guest],
+        roomCode,
+      );
       const guestPlaying = await waitForPhase(guest, roomCode, "playing");
       expect(hostPlaying.round?.id).toBe(guestPlaying.round?.id);
       expect(hostPlaying.round?.audio_url).toMatch(
@@ -168,6 +206,7 @@ describe.skipIf(!supabaseUrl || !supabaseKey)(
         { p_code: roomCode, p_choice: "real" },
         "ANSWER_LOCKED",
       );
+      const allSubmittedAt = Date.now();
       const guestAnswer = await guest.rpc("submit_answer", {
         p_code: roomCode,
         p_choice: "real",
@@ -187,10 +226,12 @@ describe.skipIf(!supabaseUrl || !supabaseKey)(
       expect(restoredState.round?.own_answer).toBe("real");
 
       const hostReveal = await waitForPhase(host, roomCode, "reveal");
+      expect(Date.now() - allSubmittedAt).toBeLessThan(7_000);
       const guestReveal = await stateFor(guest, roomCode);
       expect(hostReveal.round?.correct_answer).toMatch(/^(ai|real)$/);
       expect(hostReveal.round?.title).toBeTruthy();
       expect(hostReveal.round?.reveal_description).toBeTruthy();
+      expect(hostReveal.round_history).toHaveLength(1);
       const points = [
         hostReveal.round?.own_points,
         guestReveal.round?.own_points,
@@ -208,5 +249,54 @@ describe.skipIf(!supabaseUrl || !supabaseKey)(
         "ANSWER_WINDOW_CLOSED",
       );
     });
+
+    it("completes a solo game through per-round preparation", async () => {
+      const solo = isolatedClient();
+      await signIn(solo);
+      const created = await solo.rpc("create_room", {
+        p_nickname: `Solo ${Date.now().toString(36).slice(-5)}`,
+        p_settings: {
+          round_count: 3,
+          round_duration_seconds: 10,
+          reveal_duration_seconds: 4,
+          negative_points: true,
+          allow_answer_changes: false,
+          music_volume: 0.8,
+          song_pack: "demo",
+        },
+      });
+      expect(created.error).toBeNull();
+      const code = (created.data as RoomState).room.code;
+      expect(
+        (await solo.rpc("set_ready", { p_code: code, p_ready: true })).error,
+      ).toBeNull();
+      const started = await solo.rpc("start_game", { p_code: code });
+      expect(started.error).toBeNull();
+
+      for (let roundNumber = 1; roundNumber <= 3; roundNumber += 1) {
+        const playing = await prepareDemoRound(admin!, solo, [solo], code);
+        expect(playing.round?.number).toBe(roundNumber);
+        const answer = await solo.rpc("submit_answer", {
+          p_code: code,
+          p_choice: "ai",
+        });
+        expect(answer.error).toBeNull();
+        const reveal = await waitForPhase(solo, code, "reveal", 8_000);
+        expect(reveal.round?.title).toBeTruthy();
+      }
+
+      const finished = await waitForPhase(solo, code, "finished", 12_000);
+      expect(finished.round_history).toHaveLength(3);
+      expect(
+        new Set(finished.round_history.map((round) => round.title)).size,
+      ).toBe(3);
+      const realRounds = finished.round_history.filter(
+        (round) => round.answer_type === "real",
+      ).length;
+      const aiRounds = finished.round_history.length - realRounds;
+      expect(Math.abs(realRounds - aiRounds)).toBeLessThanOrEqual(1);
+      expect(finished.leaderboard).toHaveLength(1);
+      await solo.rpc("leave_room", { p_code: code });
+    }, 60_000);
   },
 );

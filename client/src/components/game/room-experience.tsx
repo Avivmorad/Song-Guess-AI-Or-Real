@@ -91,6 +91,8 @@ export function RoomExperience({ code }: { code: string }) {
             actionError={controller.actionError}
             onAnswer={controller.answer}
             onAgain={controller.again}
+            onAudioReady={controller.reportAudioReady}
+            onRetryPreparation={controller.retryPreparation}
             onLeave={leaveAndReturnHome}
           />
         )}

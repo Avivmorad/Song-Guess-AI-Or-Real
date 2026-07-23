@@ -386,6 +386,10 @@ export type Database = {
       };
       leave_room: { Args: { p_code: string }; Returns: Json };
       play_again: { Args: { p_code: string }; Returns: Json };
+      mark_round_audio_ready: {
+        Args: { p_code: string; p_round_id: string };
+        Returns: Json;
+      };
       remove_player: {
         Args: { p_code: string; p_player_id: string };
         Returns: Json;
@@ -408,6 +412,7 @@ export type Database = {
       answer_choice: "ai" | "real";
       room_phase:
         | "lobby"
+        | "preparing"
         | "countdown"
         | "playing"
         | "reveal"
@@ -543,6 +548,7 @@ export const Constants = {
       answer_choice: ["ai", "real"],
       room_phase: [
         "lobby",
+        "preparing",
         "countdown",
         "playing",
         "reveal",

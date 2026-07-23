@@ -16,10 +16,17 @@ function player(overrides: Partial<RoomPlayer> = {}): RoomPlayer {
 }
 
 describe("getStartGate", () => {
-  it("requires at least two players", () => {
+  it("allows one connected ready player to start solo", () => {
     expect(getStartGate([player()])).toEqual({
+      canStart: true,
+      reason: "Ready for a solo game.",
+    });
+  });
+
+  it("requires at least one player", () => {
+    expect(getStartGate([])).toEqual({
       canStart: false,
-      reason: "At least two players are required.",
+      reason: "At least one player is required.",
     });
   });
 

@@ -15,6 +15,8 @@ interface GameScreensProps {
   actionError: string;
   onAnswer: (choice: AnswerChoice) => Promise<boolean>;
   onAgain: () => Promise<boolean>;
+  onAudioReady: (roundId: string) => Promise<boolean>;
+  onRetryPreparation: () => Promise<boolean>;
   onLeave: () => Promise<void>;
 }
 
@@ -28,11 +30,13 @@ function AudioStatus({
   muted,
   onActivate,
   onMute,
+  onRetry,
 }: {
   audioState: string;
   muted: boolean;
   onActivate: () => Promise<void>;
   onMute: () => void;
+  onRetry: () => void;
 }) {
   return (
     <div className="audio-status" role="status" aria-live="polite">
@@ -49,6 +53,11 @@ function AudioStatus({
       {audioState === "blocked" && (
         <Button variant="secondary" onClick={() => void onActivate()}>
           Play audio
+        </Button>
+      )}
+      {audioState === "error" && (
+        <Button variant="secondary" onClick={onRetry}>
+          Retry audio
         </Button>
       )}
       <Button
@@ -70,6 +79,8 @@ export function GameScreens({
   actionError,
   onAnswer,
   onAgain,
+  onAudioReady,
+  onRetryPreparation,
   onLeave,
 }: GameScreensProps) {
   const now = useClock();
@@ -80,11 +91,72 @@ export function GameScreens({
   );
   const round = state.round;
   const audio = useSynchronizedAudio({
+    code: state.room.code,
     round,
     phase: state.room.phase,
     serverOffsetMs,
     volume: state.room.settings.music_volume,
+    onAudioReady,
   });
+
+  if (state.room.phase === "preparing" && round) {
+    const failed = round.preparation_status === "failed";
+    const serverReady = round.preparation_status === "ready";
+    return (
+      <section
+        className="phase-screen preparing-screen"
+        aria-labelledby="preparing-title"
+      >
+        <div className="round-kicker">
+          Round {round.number} of {round.total}
+        </div>
+        <div className="preparation-orb" aria-hidden="true">
+          {!failed && <Spinner label="" />}
+          {failed && "!"}
+        </div>
+        <p className="eyebrow">Preparing the next track</p>
+        <h1 id="preparing-title">
+          {failed
+            ? "The track could not be prepared."
+            : serverReady
+              ? "Downloading for every player."
+              : "Finding and caching your song."}
+        </h1>
+        <p aria-live="polite">
+          {failed
+            ? "Nothing will start with broken audio. The host can safely retry."
+            : serverReady
+              ? `${round.audio_ready_count}/${round.audio_required_count} players have audio ready.`
+              : "The countdown begins only after the audio is available."}
+        </p>
+        {serverReady && (
+          <AudioStatus
+            audioState={audio.audioState}
+            muted={audio.muted}
+            onActivate={audio.activate}
+            onMute={audio.toggleMuted}
+            onRetry={audio.retry}
+          />
+        )}
+        {failed && state.me.is_host && (
+          <Button
+            disabled={busyAction === "retry"}
+            onClick={() => void onRetryPreparation()}
+          >
+            {busyAction === "retry" ? (
+              <Spinner label="Retrying track preparation" />
+            ) : (
+              "Retry preparation"
+            )}
+          </Button>
+        )}
+        {failed && !state.me.is_host && (
+          <p className="waiting-host">Waiting for the host to retry.</p>
+        )}
+        {actionError && <StatusMessage>{actionError}</StatusMessage>}
+      </section>
+    );
+  }
 
   if (state.room.phase === "countdown") {
     return (
@@ -107,6 +179,7 @@ export function GameScreens({
           muted={audio.muted}
           onActivate={audio.activate}
           onMute={audio.toggleMuted}
+          onRetry={audio.retry}
         />
       </section>
     );
@@ -170,6 +243,7 @@ export function GameScreens({
             muted={audio.muted}
             onActivate={audio.activate}
             onMute={audio.toggleMuted}
+            onRetry={audio.retry}
           />
         </Panel>
 
@@ -259,6 +333,20 @@ export function GameScreens({
         <Panel className="reveal-note">
           <p>{round.reveal_description}</p>
           <small>{round.license_note}</small>
+          {(round.source_url || round.license_url) && (
+            <div className="source-links">
+              {round.source_url && (
+                <a href={round.source_url} target="_blank" rel="noreferrer">
+                  Song source
+                </a>
+              )}
+              {round.license_url && (
+                <a href={round.license_url} target="_blank" rel="noreferrer">
+                  License
+                </a>
+              )}
+            </div>
+          )}
         </Panel>
         <div className="reveal-board">
           <div className="section-row">
@@ -315,6 +403,30 @@ export function GameScreens({
             : "No final scores were recorded."}
         </p>
         <Leaderboard players={state.leaderboard} />
+        {state.round_history.length > 0 && (
+          <Panel className="final-song-list">
+            <p className="eyebrow">Songs played</p>
+            <h2>Round history</h2>
+            <ol>
+              {state.round_history.map((song) => (
+                <li key={song.round_number}>
+                  <span>
+                    <strong>{song.title}</strong>
+                    <small>
+                      {song.artist || "Unknown artist"} ·{" "}
+                      {song.answer_type === "ai" ? "AI made" : "Human made"}
+                    </small>
+                  </span>
+                  {song.source_url && (
+                    <a href={song.source_url} target="_blank" rel="noreferrer">
+                      Source
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </Panel>
+        )}
         {actionError && <StatusMessage>{actionError}</StatusMessage>}
         <div className="final-actions">
           {state.me.is_host ? (

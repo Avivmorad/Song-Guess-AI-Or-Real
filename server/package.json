@@ -8,7 +8,12 @@
     "db:stop": "supabase stop",
     "db:status": "supabase status",
     "db:reset": "supabase db reset --local",
-    "db:lint": "supabase db lint --local --fail-on warning"
+    "db:lint": "supabase db lint --local --fail-on warning",
+    "db:test": "supabase test db --local",
+    "tracks:import:suno": "node scripts/import-suno-track.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.110.8"
   },
   "devDependencies": {
     "supabase": "2.109.1"

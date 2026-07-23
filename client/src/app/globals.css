@@ -1462,6 +1462,18 @@ select.input {
   color: var(--muted);
   font-size: 0.65rem;
 }
+.source-links {
+  display: flex;
+  gap: 14px;
+  margin-top: 14px;
+}
+.source-links a,
+.final-song-list a {
+  color: var(--acid);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-underline-offset: 3px;
+}
 .reveal-board {
   margin-top: 25px;
   text-align: left;
@@ -1558,6 +1570,71 @@ select.input {
   padding: 14px;
   color: var(--muted);
   font-size: 0.75rem;
+}
+.preparing-screen {
+  display: grid;
+  min-height: calc(100vh - 160px);
+  place-content: center;
+}
+.preparation-orb {
+  display: grid;
+  width: clamp(90px, 18vw, 140px);
+  aspect-ratio: 1;
+  margin: 28px auto;
+  place-items: center;
+  color: var(--acid);
+  border: 1px solid rgba(214, 255, 85, 0.32);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(214, 255, 85, 0.12),
+    transparent 68%
+  );
+  font-size: 2.5rem;
+}
+.preparation-orb .spinner {
+  width: clamp(42px, 8vw, 66px);
+  height: clamp(42px, 8vw, 66px);
+  border-width: 3px;
+}
+.preparation-orb .spinner-wrap > span:last-child {
+  display: none;
+}
+.preparing-screen > .audio-status,
+.preparing-screen > .button,
+.preparing-screen > .status-message {
+  justify-self: center;
+  margin-top: 18px;
+}
+.final-song-list {
+  max-width: 760px;
+  margin: 28px auto 0;
+  text-align: left;
+}
+.final-song-list ol {
+  display: grid;
+  gap: 9px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: songs;
+}
+.final-song-list li {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
+  counter-increment: songs;
+}
+.final-song-list li span {
+  display: grid;
+  gap: 3px;
+}
+.final-song-list li small {
+  color: var(--muted);
+  font-size: 0.67rem;
 }
 .final-burst {
   position: absolute;

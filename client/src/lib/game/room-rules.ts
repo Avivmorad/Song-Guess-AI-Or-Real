@@ -6,8 +6,8 @@ export interface StartGate {
 }
 
 export function getStartGate(players: RoomPlayer[]): StartGate {
-  if (players.length < 2) {
-    return { canStart: false, reason: "At least two players are required." };
+  if (players.length < 1) {
+    return { canStart: false, reason: "At least one player is required." };
   }
   if (players.some((player) => !player.is_connected)) {
     return {
@@ -18,7 +18,11 @@ export function getStartGate(players: RoomPlayer[]): StartGate {
   if (players.some((player) => !player.is_ready)) {
     return { canStart: false, reason: "Every player must be ready." };
   }
-  return { canStart: true, reason: "Everyone is ready." };
+  return {
+    canStart: true,
+    reason:
+      players.length === 1 ? "Ready for a solo game." : "Everyone is ready.",
+  };
 }
 
 export function getRemainingMs(
