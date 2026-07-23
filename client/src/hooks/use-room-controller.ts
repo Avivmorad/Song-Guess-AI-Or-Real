@@ -59,6 +59,7 @@ export function useRoomController(code: string) {
   const [preparationAttempt, setPreparationAttempt] = useState(0);
   const refreshInFlight = useRef(false);
   const preparationInFlight = useRef(false);
+  const reportedGameAudioRound = useRef<string | null>(null);
   const mounted = useRef(true);
   const isPreparing = state?.room.phase === "preparing";
 
@@ -141,7 +142,10 @@ export function useRoomController(code: string) {
       retryTimer = window.setTimeout(() => void requestPreparation(), delay);
     };
     const requestPreparation = async (): Promise<void> => {
-      if (preparationInFlight.current) return;
+      if (preparationInFlight.current) {
+        schedule(100);
+        return;
+      }
       preparationInFlight.current = true;
       try {
         const result = await prepareRound(code);
@@ -179,23 +183,39 @@ export function useRoomController(code: string) {
         }
         if (result.status === "ready") {
           setActionError("");
-          await prefetchGameAudio(code, (downloaded, playlistTotal) => {
+          const readinessKey = state?.round?.id ?? code;
+          if (reportedGameAudioRound.current !== readinessKey) {
+            await prefetchGameAudio(code, (downloaded, playlistTotal) => {
+              if (cancelled) return;
+              setPreparationProgress({
+                stage: "download",
+                serverReady: total || playlistTotal,
+                downloaded,
+                total: playlistTotal,
+                playerReady: result.player_ready_count ?? 0,
+                playerRequired: result.player_required_count ?? 0,
+                timedOut: result.timed_out ?? false,
+                stalledPlayers: result.stalled_players ?? [],
+              });
+            });
             if (cancelled) return;
+            const readyState = await markGameAudioReady(code);
+            reportedGameAudioRound.current = readinessKey;
+            acceptState(readyState);
+            if (readyState.room.phase === "preparing") schedule(1_000);
+          } else {
             setPreparationProgress({
               stage: "download",
-              serverReady: total || playlistTotal,
-              downloaded,
-              total: playlistTotal,
+              serverReady: total,
+              downloaded: total,
+              total,
               playerReady: result.player_ready_count ?? 0,
               playerRequired: result.player_required_count ?? 0,
               timedOut: result.timed_out ?? false,
               stalledPlayers: result.stalled_players ?? [],
             });
-          });
-          if (cancelled) return;
-          const readyState = await markGameAudioReady(code);
-          acceptState(readyState);
-          if (readyState.room.phase === "preparing") schedule(1_000);
+            schedule(1_000);
+          }
         } else {
           schedule(result.status === "preparing" ? 1_000 : 50);
         }
@@ -228,7 +248,7 @@ export function useRoomController(code: string) {
     code,
     isPreparing,
     preparationAttempt,
-    state?.round?.audio_ready_count,
+    state?.round?.id,
     state?.round?.total,
   ]);
 
