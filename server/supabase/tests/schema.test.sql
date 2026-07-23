@@ -360,6 +360,17 @@ select
 from private.tracks
 where provider = 'jamendo' and provider_track_id = 'pgtap-jamendo-1';
 
+insert into auth.users (id, is_anonymous)
+values ('00000000-0000-0000-0000-000000000107', true);
+insert into public.players (id, room_id, user_id, nickname, is_ready)
+values (
+  '00000000-0000-0000-0000-000000000108',
+  '00000000-0000-0000-0000-000000000102',
+  '00000000-0000-0000-0000-000000000107',
+  'Stalled SQL Guest',
+  true
+);
+
 select lives_ok(
   $$select private.advance_room_locked(
     '00000000-0000-0000-0000-000000000102'
@@ -399,16 +410,24 @@ values (
   '00000000-0000-0000-0000-000000000103'
 );
 
-select lives_ok(
-  $$select private.advance_room_locked(
-    '00000000-0000-0000-0000-000000000102'
-  )$$,
-  'game advancement starts after complete player caching'
+select set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000101',
+  true
 );
+set local role authenticated;
+select lives_ok(
+  $$select public.remove_player(
+    'QATEST',
+    '00000000-0000-0000-0000-000000000108'
+  )$$,
+  'host can remove a stalled player after the preload deadline'
+);
+reset role;
 select is(
   (select phase::text from public.rooms where code = 'QATEST'),
   'countdown',
-  'countdown begins once every game track and active player are ready'
+  'stalled player removal starts countdown for the ready players'
 );
 
 select * from finish();

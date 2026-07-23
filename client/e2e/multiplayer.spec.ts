@@ -256,6 +256,60 @@ test("one player completes a full game with prepared rounds", async ({
   expect(perRoundAudioRequests).toBe(0);
 });
 
+test("host recovers after a player misses the preload deadline", async ({
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(180_000);
+  const hostContext = await browser.newContext();
+  const guestContext = await browser.newContext();
+  const host = await hostContext.newPage();
+  const guest = await guestContext.newPage();
+  await Promise.all([grantPreviewAccess(host), grantPreviewAccess(guest)]);
+  await host.addInitScript(() => {
+    const nativePlay = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function play() {
+      if (this.src.startsWith("data:")) return nativePlay.call(this);
+      return Promise.reject(new DOMException("Blocked", "NotAllowedError"));
+    };
+  });
+  await guestContext.route("**/audio/*.wav", (route) => route.abort("failed"));
+
+  await host.goto(`${baseURL}/create`);
+  await host.getByLabel("Nickname").fill("Timeout Host");
+  await host.getByLabel("Rounds").selectOption("3");
+  await host.getByLabel("Answer time").selectOption("10");
+  await host.getByRole("button", { name: "Open the lobby" }).click();
+  const code = (await host.locator(".room-code").textContent())!.trim();
+
+  await guest.goto(`${baseURL}/join?code=${code}`);
+  await guest.getByLabel("Nickname").fill("Stalled Guest");
+  await guest.getByRole("button", { name: "Join room" }).click();
+  await expect(host.getByText("Stalled Guest", { exact: true })).toBeVisible();
+  await selectDemoPackWhenAvailable(host);
+  await saveSettingsAndWait(host);
+  await Promise.all([
+    host.getByRole("button", { name: "I’m ready" }).click(),
+    guest.getByRole("button", { name: "I’m ready" }).click(),
+  ]);
+  await host.getByRole("button", { name: "Start the game" }).click();
+
+  await expect(
+    host.getByRole("heading", { name: "Some players are still loading." }),
+  ).toBeVisible({ timeout: 80_000 });
+  await expect(host.getByText("Stalled Guest", { exact: true })).toBeVisible();
+  await expect(
+    host.getByRole("button", { name: "Retry missing audio" }),
+  ).toBeVisible();
+  await host.getByRole("button", { name: "Remove player" }).click();
+  await expect(
+    host.getByRole("heading", { name: "Who made this?" }),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(host.getByRole("button", { name: "Play audio" })).toBeVisible();
+
+  await Promise.all([hostContext.close(), guestContext.close()]);
+});
+
 test("mobile keyboard flow reports an invalid room without overflow", async ({
   page,
   baseURL,
