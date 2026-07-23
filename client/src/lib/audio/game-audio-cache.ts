@@ -66,7 +66,47 @@ export function clearGameAudioCache(code: string) {
     sharedGameAudio.pause();
     sharedGameAudio.src = "";
     sharedGameAudio.load?.();
+    sharedGameAudio = null;
   }
+}
+
+async function verifyCachedAudioIsPlayable(
+  downloaded: Map<string, CachedAudio>,
+) {
+  const audio = getGameAudioElement();
+  for (const [roundId, cached] of downloaded) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = globalThis.setTimeout(
+          () => reject(new Error("AUDIO_DOWNLOAD_FAILED")),
+          15_000,
+        );
+        const cleanup = () => {
+          globalThis.clearTimeout(timeout);
+          audio.removeEventListener("loadeddata", handleReady);
+          audio.removeEventListener("error", handleError);
+        };
+        const handleReady = () => {
+          cleanup();
+          resolve();
+        };
+        const handleError = () => {
+          cleanup();
+          reject(new Error("AUDIO_DOWNLOAD_FAILED"));
+        };
+        audio.addEventListener("loadeddata", handleReady, { once: true });
+        audio.addEventListener("error", handleError, { once: true });
+        audio.src = cached.objectUrl;
+        audio.load();
+      });
+    } catch {
+      URL.revokeObjectURL(cached.objectUrl);
+      downloaded.delete(roundId);
+      throw new Error("AUDIO_DOWNLOAD_FAILED");
+    }
+  }
+  audio.pause();
+  audio.currentTime = 0;
 }
 
 export async function prefetchGameAudio(
@@ -128,6 +168,7 @@ export async function prefetchGameAudio(
       await Promise.all(
         Array.from({ length: Math.min(3, playlist.length) }, () => worker()),
       );
+      await verifyCachedAudioIsPlayable(downloaded);
       roomAudio.set(key, downloaded);
       return downloaded;
     } catch (error) {
