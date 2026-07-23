@@ -197,8 +197,12 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
   await expect(host.locator(".final-song-list a")).toHaveCount(3);
   await host.getByRole("button", { name: "Play Again" }).click();
   await Promise.all([
-    expect(host.getByRole("heading", { name: "Players" })).toBeVisible(),
-    expect(guest.getByRole("heading", { name: "Players" })).toBeVisible(),
+    expect(
+      host.getByRole("heading", { name: "Players", exact: true }),
+    ).toBeVisible(),
+    expect(
+      guest.getByRole("heading", { name: "Players", exact: true }),
+    ).toBeVisible(),
   ]);
 
   expect(hostFailures).toEqual([]);
