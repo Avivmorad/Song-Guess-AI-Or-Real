@@ -1,6 +1,6 @@
 begin;
 
-select plan(62);
+select plan(67);
 
 select has_schema('private', 'private schema exists');
 select has_table('public', 'rooms', 'rooms table exists');
@@ -57,6 +57,41 @@ select has_table(
   'private',
   'round_audio_ready',
   'private per-player audio readiness table exists'
+);
+select has_table(
+  'private',
+  'rpc_rate_limits',
+  'private RPC rate-limit counters exist'
+);
+select has_function(
+  'private',
+  'enforce_rpc_rate_limit',
+  array['uuid', 'text', 'integer', 'interval'],
+  'RPC rate-limit enforcement function exists'
+);
+select has_function(
+  'private',
+  'cleanup_expired_game_data',
+  array[]::text[],
+  'scheduled game-data cleanup function exists'
+);
+select ok(
+  exists (
+    select 1
+    from cron.job
+    where jobname = 'cleanup-expired-game-data'
+      and schedule = '17 * * * *'
+  ),
+  'expired game data cleanup runs hourly'
+);
+select is(
+  has_function_privilege(
+    'authenticated',
+    'private.cleanup_expired_game_data()',
+    'execute'
+  ),
+  false,
+  'players cannot invoke privileged cleanup'
 );
 select is(
   (select relrowsecurity from pg_class where oid = 'public.rooms'::regclass),

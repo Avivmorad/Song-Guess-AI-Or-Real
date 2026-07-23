@@ -27,6 +27,7 @@ const safeMessages: Record<string, string> = {
   INVALID_NICKNAME: "Use a nickname between 2 and 20 characters.",
   INVALID_ROOM_CODE: "Enter the six-character room code.",
   ROOM_CODE_UNAVAILABLE: "A room code could not be created. Please try again.",
+  RATE_LIMITED: "Too many attempts. Wait a few minutes and try again.",
   ROOM_NOT_FOUND: "That room does not exist or has expired.",
   NOT_IN_ROOM: "This browser is not a member of that room.",
   NICKNAME_TAKEN: "That nickname is already used in this room.",
