@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
+async function grantPreviewAccess(page: Page) {
+  const accessUrl = process.env.E2E_ACCESS_URL;
+  if (accessUrl) await page.goto(accessUrl);
+}
+
 function trackRuntimeFailures(page: Page) {
   const failures: string[] = [];
   page.on("pageerror", (error) => failures.push(`page: ${error.message}`));
@@ -46,6 +51,7 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
   const guestContext = await browser.newContext();
   const host = await hostContext.newPage();
   const guest = await guestContext.newPage();
+  await Promise.all([grantPreviewAccess(host), grantPreviewAccess(guest)]);
   const hostFailures = trackRuntimeFailures(host);
   const guestFailures = trackRuntimeFailures(guest);
 
@@ -151,6 +157,7 @@ test("one player completes a full game with prepared rounds", async ({
   page,
   baseURL,
 }) => {
+  await grantPreviewAccess(page);
   let playlistRequests = 0;
   let perRoundAudioRequests = 0;
   page.on("request", (request) => {
@@ -201,6 +208,7 @@ test("mobile keyboard flow reports an invalid room without overflow", async ({
   page,
   baseURL,
 }) => {
+  await grantPreviewAccess(page);
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto(`${baseURL}/join`);
   await page.getByLabel("Room code").focus();
@@ -227,6 +235,7 @@ test("audio loading failures produce an accessible recovery message", async ({
     route.abort("failed"),
   );
   const page = await context.newPage();
+  await grantPreviewAccess(page);
   await page.goto(`${baseURL}/create`);
   await page.getByLabel("Nickname").fill("Audio Tester");
   await page.getByLabel("Rounds").selectOption("3");
