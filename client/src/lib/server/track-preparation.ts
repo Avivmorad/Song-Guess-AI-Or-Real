@@ -293,3 +293,11 @@ export async function prepareGameTracks(
     clearTimeout(timeout);
   }
 }
+
+export async function skipGameTrack(code: string, userId: string) {
+  const client = getSupabaseAdminClient();
+  return rpc<PreparationClaim>(client, "service_skip_game_track", {
+    p_code: code,
+    p_user_id: userId,
+  });
+}

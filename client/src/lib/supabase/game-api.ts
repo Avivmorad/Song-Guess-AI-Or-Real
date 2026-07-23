@@ -37,7 +37,7 @@ const safeMessages: Record<string, string> = {
   NEED_TWO_PLAYERS: "At least two players are required.",
   PLAYERS_NOT_READY: "Every connected player must be ready.",
   NOT_ENOUGH_AI_TRACKS: "Import at least one owned Suno track before starting.",
-  NOT_ENOUGH_TRACKS: "That song pack does not have enough enabled tracks.",
+  NOT_ENOUGH_TRACKS: "That music library does not have enough enabled tracks.",
   ANSWER_WINDOW_CLOSED: "The answer window is closed.",
   ANSWER_LOCKED: "Your answer is locked for this round.",
   PLAYER_NOT_FOUND: "That player is no longer in the room.",
@@ -55,6 +55,7 @@ const safeMessages: Record<string, string> = {
     "Track preparation is not configured on the server.",
   JAMENDO_NOT_CONFIGURED: "Jamendo is not configured on the server.",
   PREPARATION_TIMEOUT: "Track preparation timed out. The host can retry.",
+  SKIP_NOT_AVAILABLE: "There is no stalled track to skip right now.",
   NO_ELIGIBLE_JAMENDO_TRACK:
     "No downloadable Jamendo track was available. The host can retry.",
 };
@@ -190,6 +191,7 @@ export interface PreparationResponse {
   total_count?: number;
   ready_count?: number;
   failed_count?: number;
+  playlist_revision?: number;
   player_ready_count?: number;
   player_required_count?: number;
   audio_preload_deadline?: string | null;
@@ -203,6 +205,20 @@ export async function prepareRound(
 ): Promise<PreparationResponse> {
   const response = await authenticatedFetch(
     `/api/rooms/${encodeURIComponent(code)}/prepare${forceRetry ? "?retry=1" : ""}`,
+    { method: "POST" },
+  );
+  const payload = (await response.json()) as PreparationResponse;
+  if (!response.ok && response.status !== 503) {
+    throw new GameApiError(payload.error_code || "PREPARATION_FAILED");
+  }
+  return payload;
+}
+
+export async function skipPreparingTrack(
+  code: string,
+): Promise<PreparationResponse> {
+  const response = await authenticatedFetch(
+    `/api/rooms/${encodeURIComponent(code)}/prepare?skip=1`,
     { method: "POST" },
   );
   const payload = (await response.json()) as PreparationResponse;

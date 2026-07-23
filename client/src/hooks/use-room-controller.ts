@@ -17,6 +17,7 @@ import {
   prepareRound,
   removePlayer,
   setReady,
+  skipPreparingTrack,
   startGame,
   submitAnswer,
   subscribeToRoom,
@@ -34,6 +35,7 @@ type ActionName =
   | "leave"
   | "again"
   | "retry"
+  | "skip"
   | null;
 
 export interface PreparationProgress {
@@ -183,21 +185,26 @@ export function useRoomController(code: string) {
         }
         if (result.status === "ready") {
           setActionError("");
-          const readinessKey = state?.round?.id ?? code;
+          const playlistRevision = result.playlist_revision ?? 1;
+          const readinessKey = `${state?.round?.id ?? code}:${playlistRevision}`;
           if (reportedGameAudioRound.current !== readinessKey) {
-            await prefetchGameAudio(code, (downloaded, playlistTotal) => {
-              if (cancelled) return;
-              setPreparationProgress({
-                stage: "download",
-                serverReady: total || playlistTotal,
-                downloaded,
-                total: playlistTotal,
-                playerReady: result.player_ready_count ?? 0,
-                playerRequired: result.player_required_count ?? 0,
-                timedOut: result.timed_out ?? false,
-                stalledPlayers: result.stalled_players ?? [],
-              });
-            });
+            await prefetchGameAudio(
+              code,
+              playlistRevision,
+              (downloaded, playlistTotal) => {
+                if (cancelled) return;
+                setPreparationProgress({
+                  stage: "download",
+                  serverReady: total || playlistTotal,
+                  downloaded,
+                  total: playlistTotal,
+                  playerReady: result.player_ready_count ?? 0,
+                  playerRequired: result.player_required_count ?? 0,
+                  timedOut: result.timed_out ?? false,
+                  stalledPlayers: result.stalled_players ?? [],
+                });
+              },
+            );
             if (cancelled) return;
             const readyState = await markGameAudioReady(code);
             reportedGameAudioRound.current = readinessKey;
@@ -220,6 +227,7 @@ export function useRoomController(code: string) {
           schedule(result.status === "preparing" ? 1_000 : 50);
         }
       } catch (error) {
+        if (cancelled) return;
         const gameError =
           error instanceof GameApiError
             ? error
@@ -334,6 +342,33 @@ export function useRoomController(code: string) {
           );
           return false;
         }
+        await refresh(false);
+        setPreparationAttempt((current) => current + 1);
+        return true;
+      } catch (error) {
+        const gameError =
+          error instanceof GameApiError
+            ? error
+            : new GameApiError("PREPARATION_FAILED");
+        setActionError(gameError.message);
+        return false;
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    skipPreparation: async () => {
+      setBusyAction("skip");
+      setActionError("");
+      try {
+        const result = await skipPreparingTrack(code);
+        if (result.status === "failed") {
+          setActionError(
+            new GameApiError(result.error_code || "PREPARATION_FAILED").message,
+          );
+          return false;
+        }
+        clearGameAudioCache(code);
+        reportedGameAudioRound.current = null;
         await refresh(false);
         setPreparationAttempt((current) => current + 1);
         return true;

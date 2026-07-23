@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export function WaveMark({ compact = false }: { compact?: boolean }) {
   return (
-    <Link className="brand" href="/" aria-label="Song Guess: AI Or Real home">
+    <Link className="brand" href="/" aria-label="Banger or Bot home">
       <span className="brand-mark" aria-hidden="true">
         <i />
         <i />
@@ -11,7 +11,7 @@ export function WaveMark({ compact = false }: { compact?: boolean }) {
       </span>
       {!compact && (
         <span className="brand-name">
-          Song Guess <b>AI Or Real</b>
+          Banger <b>or Bot</b>
         </span>
       )}
     </Link>
@@ -27,9 +27,14 @@ export function SiteHeader({ roomCode }: { roomCode?: string }) {
           Room <strong>{roomCode}</strong>
         </span>
       ) : (
-        <Link className="text-link" href="/#how-to-play">
-          How to play
-        </Link>
+        <nav className="guide-nav" aria-label="Game guides">
+          <Link className="guide-link" href="/#how-to-play">
+            How to Play
+          </Link>
+          <Link className="guide-link" href="/#how-to-host">
+            How to Host
+          </Link>
+        </nav>
       )}
     </header>
   );

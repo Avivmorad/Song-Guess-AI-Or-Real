@@ -23,7 +23,7 @@ export default async function JoinPage({
         </div>
       </div>
       <Link className="back-link" href="/">
-        ← Back home
+        ← Back to Home
       </Link>
     </main>
   );

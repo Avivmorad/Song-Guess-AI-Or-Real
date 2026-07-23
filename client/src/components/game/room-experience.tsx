@@ -70,7 +70,9 @@ export function RoomExperience({ code }: { code: string }) {
   const state = controller.state!;
   return (
     <main className={`room-page phase-${state.room.phase}`}>
-      <SiteHeader roomCode={state.room.code} />
+      <SiteHeader
+        roomCode={state.room.phase === "lobby" ? undefined : state.room.code}
+      />
       <div className="room-content">
         {state.room.phase === "lobby" ? (
           <LobbyScreen
@@ -94,6 +96,7 @@ export function RoomExperience({ code }: { code: string }) {
             onAgain={controller.again}
             onAudioReady={controller.reportAudioReady}
             onRetryPreparation={controller.retryPreparation}
+            onSkipPreparation={controller.skipPreparation}
             onRemove={controller.remove}
             onLeave={leaveAndReturnHome}
           />

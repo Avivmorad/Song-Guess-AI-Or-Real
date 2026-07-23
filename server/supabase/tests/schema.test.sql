@@ -1,6 +1,6 @@
 begin;
 
-select plan(54);
+select plan(62);
 
 select has_schema('private', 'private schema exists');
 select has_table('public', 'rooms', 'rooms table exists');
@@ -16,6 +16,19 @@ select col_default_is(
   'full_game_audio_preload',
   'false',
   'legacy games retain per-round preparation by default'
+);
+select has_column(
+  'public',
+  'games',
+  'audio_playlist_revision',
+  'games track playlist replacement revisions'
+);
+select col_default_is(
+  'public',
+  'games',
+  'audio_playlist_revision',
+  '1',
+  'new games begin with the first audio playlist revision'
 );
 select has_table('public', 'players', 'players table exists');
 select has_table('public', 'games', 'games table exists');
@@ -102,6 +115,12 @@ select has_function(
   'service whole-game audio access RPC exists'
 );
 select has_function(
+  'public',
+  'service_skip_game_track',
+  array['text', 'uuid'],
+  'service track replacement RPC exists'
+);
+select has_function(
   'private',
   'balanced_round_plan',
   array['integer'],
@@ -184,6 +203,24 @@ select is(
   ),
   true,
   'authenticated players can acknowledge prepared audio'
+);
+select is(
+  has_function_privilege(
+    'authenticated',
+    'public.service_skip_game_track(text,uuid)',
+    'execute'
+  ),
+  false,
+  'authenticated users cannot invoke the trusted track replacement RPC'
+);
+select is(
+  has_function_privilege(
+    'service_role',
+    'public.service_skip_game_track(text,uuid)',
+    'execute'
+  ),
+  true,
+  'the service role can invoke the trusted track replacement RPC'
 );
 select has_function(
   'public',
@@ -310,6 +347,46 @@ select ok(
   'room members can preload every prepared track without reveal metadata'
 );
 
+update public.rounds
+set
+  status = 'scored',
+  starts_at = clock_timestamp() - interval '2 seconds'
+where id = '00000000-0000-0000-0000-000000000105';
+insert into public.answers (
+  round_id,
+  player_id,
+  choice,
+  submitted_at,
+  is_correct,
+  total_points
+)
+values (
+  '00000000-0000-0000-0000-000000000105',
+  '00000000-0000-0000-0000-000000000103',
+  'real',
+  clock_timestamp() - interval '1 second',
+  true,
+  750
+);
+select ok(
+  (
+    private.room_state(
+      '00000000-0000-0000-0000-000000000102',
+      '00000000-0000-0000-0000-000000000101'
+    ) #> '{round_history,0}'
+  ) @> jsonb_build_object(
+    'own_answer', 'real',
+    'own_points', 750,
+    'was_correct', true
+  ),
+  'room history includes the player answer, result, and score change'
+);
+delete from public.answers
+where round_id = '00000000-0000-0000-0000-000000000105';
+update public.rounds
+set status = 'pending', starts_at = null
+where id = '00000000-0000-0000-0000-000000000105';
+
 insert into public.rounds (id, game_id, room_id, round_number)
 values (
   '00000000-0000-0000-0000-000000000106',
@@ -360,6 +437,43 @@ select
 from private.tracks
 where provider = 'jamendo' and provider_track_id = 'pgtap-jamendo-1';
 
+select is(
+  private.service_skip_game_track(
+    'QATEST',
+    '00000000-0000-0000-0000-000000000101'
+  ) ->> 'playlist_revision',
+  '2',
+  'skipping a prepared track advances the playlist revision'
+);
+select ok(
+  (
+    select status = 'pending'
+      and not exists (
+        select 1
+        from private.round_secrets
+        where round_id = '00000000-0000-0000-0000-000000000105'
+      )
+      and not exists (
+        select 1
+        from private.round_audio_ready ar
+        join public.rounds r on r.id = ar.round_id
+        where r.game_id = '00000000-0000-0000-0000-000000000104'
+      )
+    from private.round_preparations
+    where round_id = '00000000-0000-0000-0000-000000000105'
+  ),
+  'skipping resets the chosen preparation and every player readiness record'
+);
+update private.round_preparations
+set status = 'ready', ready_at = clock_timestamp()
+where round_id = '00000000-0000-0000-0000-000000000105';
+insert into private.round_secrets (round_id, track_id)
+select
+  '00000000-0000-0000-0000-000000000105',
+  id
+from private.tracks
+where provider = 'jamendo' and provider_track_id = 'pgtap-jamendo-1';
+
 insert into auth.users (id, is_anonymous)
 values ('00000000-0000-0000-0000-000000000107', true);
 insert into public.players (id, room_id, user_id, nickname, is_ready)
@@ -405,10 +519,15 @@ select is(
 );
 
 insert into private.round_audio_ready (round_id, player_id)
-values (
-  '00000000-0000-0000-0000-000000000106',
-  '00000000-0000-0000-0000-000000000103'
-);
+values
+  (
+    '00000000-0000-0000-0000-000000000105',
+    '00000000-0000-0000-0000-000000000103'
+  ),
+  (
+    '00000000-0000-0000-0000-000000000106',
+    '00000000-0000-0000-0000-000000000103'
+  );
 
 select set_config(
   'request.jwt.claim.sub',

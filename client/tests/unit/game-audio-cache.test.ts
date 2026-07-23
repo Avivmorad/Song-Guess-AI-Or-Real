@@ -93,7 +93,7 @@ describe("whole-game audio cache", () => {
     ]);
     const progress: Array<[number, number]> = [];
 
-    await prefetchGameAudio("cache1", (ready, total) =>
+    await prefetchGameAudio("cache1", 1, (ready, total) =>
       progress.push([ready, total]),
     );
     await prefetchGameAudio("CACHE1");
@@ -155,6 +155,39 @@ describe("whole-game audio cache", () => {
     expect(
       fetchAudio.mock.calls.filter(([url]) => String(url).endsWith("/b")),
     ).toHaveLength(2);
+  });
+
+  it("invalidates cached audio when the playlist revision changes", async () => {
+    const createObjectURL = vi
+      .fn()
+      .mockImplementation(
+        () => `blob:revision-${createObjectURL.mock.calls.length}`,
+      );
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        blob: () => Promise.resolve(new Blob(["audio"])),
+      }),
+    );
+    getGameAudioPlaylist
+      .mockResolvedValueOnce([
+        { round_id: "round-1", audio_url: "https://audio.test/original" },
+      ])
+      .mockResolvedValueOnce([
+        { round_id: "round-1", audio_url: "https://audio.test/replacement" },
+      ]);
+
+    await prefetchGameAudio("CACHE1", 1);
+    expect(getPrefetchedAudioUrl("CACHE1", "round-1")).toBe("blob:revision-1");
+
+    await prefetchGameAudio("CACHE1", 2);
+
+    expect(getGameAudioPlaylist).toHaveBeenCalledTimes(2);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:revision-1");
+    expect(getPrefetchedAudioUrl("CACHE1", "round-1")).toBe("blob:revision-2");
   });
 
   it("turns a stalled download into a recoverable timeout", async () => {

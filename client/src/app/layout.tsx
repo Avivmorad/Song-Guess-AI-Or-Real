@@ -17,23 +17,24 @@ export const metadata: Metadata = {
     process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
   ),
   title: {
-    default: "Song Guess: AI Or Real",
-    template: "%s · Song Guess: AI Or Real",
+    default: "Banger or Bot",
+    template: "%s · Banger or Bot",
   },
   description:
-    "A real-time multiplayer music game where players guess whether each track was made by AI or a human.",
-  applicationName: "Song Guess: AI Or Real",
+    "Listen to the track, decide if it was made by a human or AI, and beat your friends to the answer.",
+  applicationName: "Banger or Bot",
   keywords: ["music game", "multiplayer", "AI music", "party game"],
   openGraph: {
     type: "website",
-    title: "Song Guess: AI Or Real",
-    description: "Trust your ears. Question everything.",
-    siteName: "Song Guess: AI Or Real",
+    title: "Banger or Bot",
+    description:
+      "Can you hear the difference between human music and an AI-made track?",
+    siteName: "Banger or Bot",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Song Guess: AI Or Real",
-    description: "A real-time multiplayer music deception game.",
+    title: "Banger or Bot",
+    description: "The AI music showdown for you and your friends.",
   },
 };
 

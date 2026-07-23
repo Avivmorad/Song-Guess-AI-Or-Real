@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowIcon } from "@/components/icons";
+import { ArrowIcon, InfoIcon } from "@/components/icons";
 import { Button, Field, Panel, Spinner, StatusMessage } from "@/components/ui";
 import {
   DEFAULT_SETTINGS,
@@ -27,7 +27,14 @@ export function CreateRoomForm({
   const [nickname, setNickname] = useInitialNickname(initialNickname);
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
   const [error, setError] = useState("");
+  const [nicknameTouched, setNicknameTouched] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const nicknameIsValid = normalizeNickname(nickname).length >= 2;
+  const nicknameError =
+    (nicknameTouched || error) && !nicknameIsValid
+      ? "Use a nickname between 2 and 20 characters."
+      : "";
+  const settingsSummary = `${settings.round_count} rounds · ${settings.round_duration_seconds} seconds · Penalty ${settings.negative_points ? "on" : "off"}`;
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -62,18 +69,23 @@ export function CreateRoomForm({
         <div className="panel-heading">
           <span className="step-number">01</span>
           <div>
-            <p className="eyebrow">Player</p>
-            <h2>Choose your name</h2>
+            <p className="eyebrow">Player Profile</p>
+            <h2>Choose your nickname</h2>
           </div>
         </div>
         <Field
           id="create-nickname"
           label="Nickname"
           value={nickname}
-          onChange={(event) => setNickname(event.target.value)}
-          placeholder="Your stage name"
+          onChange={(event) => {
+            setNickname(event.target.value);
+            setError("");
+          }}
+          onBlur={() => setNicknameTouched(true)}
+          placeholder="Enter your nickname"
           autoComplete="nickname"
           maxLength={20}
+          error={nicknameError}
         />
       </Panel>
 
@@ -81,13 +93,13 @@ export function CreateRoomForm({
         <div className="panel-heading">
           <span className="step-number">02</span>
           <div>
-            <p className="eyebrow">Game setup</p>
-            <h2>Set the tempo</h2>
+            <p className="eyebrow">Game Settings</p>
+            <h2>Customize your game</h2>
           </div>
         </div>
         <div className="settings-grid compact-settings">
           <label className="field">
-            <span className="field-label">Rounds</span>
+            <span className="field-label">Number of rounds</span>
             <select
               className="input"
               value={settings.round_count}
@@ -106,7 +118,7 @@ export function CreateRoomForm({
             </select>
           </label>
           <label className="field">
-            <span className="field-label">Answer time</span>
+            <span className="field-label">Time per round</span>
             <select
               className="input"
               value={settings.round_duration_seconds}
@@ -126,8 +138,11 @@ export function CreateRoomForm({
           </label>
           <label className="switch-row">
             <span>
-              <strong>Wrong-answer penalty</strong>
-              <small>Lose 500 points for a miss</small>
+              <strong className="label-with-info">
+                Wrong answer penalty
+                <InfoIcon aria-label="Wrong answers deduct 500 points" />
+              </strong>
+              <small>Deduct 500 points for a wrong answer</small>
             </span>
             <input
               type="checkbox"
@@ -142,8 +157,8 @@ export function CreateRoomForm({
           </label>
           <label className="switch-row">
             <span>
-              <strong>Change answers</strong>
-              <small>Allow edits before time expires</small>
+              <strong>Allow answer changes</strong>
+              <small>Players can change their answer until time runs out</small>
             </span>
             <input
               type="checkbox"
@@ -160,17 +175,20 @@ export function CreateRoomForm({
       </Panel>
 
       <div className="entry-submit">
-        {error && <StatusMessage>{error}</StatusMessage>}
-        <Button type="submit" disabled={isSubmitting}>
+        {error && !nicknameError && <StatusMessage>{error}</StatusMessage>}
+        <div className="settings-summary" aria-label="Settings summary">
+          {settingsSummary}
+        </div>
+        <Button type="submit" disabled={isSubmitting || !nicknameIsValid}>
           {isSubmitting ? (
             <Spinner label="Creating room" />
           ) : (
             <>
-              Open the lobby <ArrowIcon aria-hidden="true" />
+              Create Room &amp; Open Lobby <ArrowIcon aria-hidden="true" />
             </>
           )}
         </Button>
-        <p>Your settings can still be changed in the lobby.</p>
+        <p>You can change these settings later in the lobby.</p>
       </div>
     </form>
   );
@@ -224,8 +242,8 @@ export function JoinRoomForm({
   return (
     <form onSubmit={handleSubmit} className="join-card">
       <div className="join-card-heading">
-        <p className="eyebrow">Enter the session</p>
-        <h1>Join the listening room.</h1>
+        <p className="eyebrow">Join a Game</p>
+        <h1>Join a Banger or Bot room.</h1>
         <p>Ask the host for the six-character code shown in their lobby.</p>
       </div>
       <Field
@@ -244,7 +262,7 @@ export function JoinRoomForm({
         label="Nickname"
         value={nickname}
         onChange={(event) => setNickname(event.target.value)}
-        placeholder="Your stage name"
+        placeholder="Enter your nickname"
         autoComplete="nickname"
         maxLength={20}
       />
@@ -254,7 +272,7 @@ export function JoinRoomForm({
           <Spinner label="Joining room" />
         ) : (
           <>
-            Join room <ArrowIcon aria-hidden="true" />
+            Join Game <ArrowIcon aria-hidden="true" />
           </>
         )}
       </Button>
