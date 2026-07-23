@@ -19,6 +19,9 @@ output/playwright/
 *.pem
 .vercel/
 
+# Local source audio (uploaded to private Storage, never committed)
+Downloaded Music/
+
 # Tool caches and logs
 *.tsbuildinfo
 npm-debug.log*

@@ -72,6 +72,7 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
     await expect(host.locator(".preparing-screen")).toBeVisible({
       timeout: 20_000,
     });
+    await expect(host.locator(".preparation-orb .spinner")).toBeVisible();
     await Promise.all([
       expect(host.getByRole("heading", { name: "Who made this?" })).toBeVisible(
         {
@@ -124,6 +125,7 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
     host.getByRole("list", { name: "Leaderboard" }).getByRole("listitem"),
   ).toHaveCount(2);
   await expect(host.locator(".final-song-list li")).toHaveCount(3);
+  await expect(host.locator(".final-song-list a")).toHaveCount(3);
   await host.getByRole("button", { name: "Play again with this room" }).click();
   await Promise.all([
     expect(host.getByRole("heading", { name: "Players" })).toBeVisible(),
@@ -133,6 +135,49 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
   expect(hostFailures).toEqual([]);
   expect(guestFailures).toEqual([]);
   await Promise.all([hostContext.close(), guestContext.close()]);
+});
+
+test("one player completes a full game with prepared rounds", async ({
+  page,
+  baseURL,
+}) => {
+  await page.goto(`${baseURL}/create`);
+  await page.getByLabel("Nickname").fill("E2E Solo");
+  await page.getByLabel("Rounds").selectOption("3");
+  await page.getByLabel("Answer time").selectOption("10");
+  await page.getByRole("button", { name: "Open the lobby" }).click();
+
+  const demoOption = page
+    .getByLabel("Song pack")
+    .locator('option[value="demo"]');
+  if ((await demoOption.count()) > 0) {
+    await page.getByLabel("Song pack").selectOption("demo");
+  }
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await page.getByRole("button", { name: "Enable audio" }).click();
+  await page.getByRole("button", { name: "I’m ready" }).click();
+  await expect(
+    page.getByRole("button", { name: "Start the game" }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Start the game" }).click();
+  await expect(page.locator(".preparing-screen")).toBeVisible();
+
+  for (let round = 1; round <= 3; round += 1) {
+    await expect(
+      page.getByRole("heading", { name: "Who made this?" }),
+    ).toBeVisible({ timeout: 20_000 });
+    await activateBlockedAudio(page);
+    await page.locator(".answer-real").click();
+    await expect(page.getByText("Correct answer", { exact: true })).toBeVisible(
+      { timeout: 12_000 },
+    );
+  }
+
+  await expect(page.getByText("Final results", { exact: true })).toBeVisible({
+    timeout: 12_000,
+  });
+  await expect(page.locator(".final-song-list li")).toHaveCount(3);
+  await expect(page.locator(".final-song-list a")).toHaveCount(3);
 });
 
 test("mobile keyboard flow reports an invalid room without overflow", async ({

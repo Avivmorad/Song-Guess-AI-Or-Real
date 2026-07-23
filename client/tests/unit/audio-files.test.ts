@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { sha256Hex, stripMp3Metadata } from "@/lib/server/audio-files";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  downloadAudio,
+  sha256Hex,
+  stripMp3Metadata,
+  validateRemoteAudioUrl,
+} from "@/lib/server/audio-files";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("MP3 sanitization", () => {
   it("removes ID3v2 and ID3v1 metadata without changing audio frames", () => {
@@ -27,5 +34,40 @@ describe("MP3 sanitization", () => {
     expect(sha256Hex(Uint8Array.from([1, 2, 3]))).toBe(
       "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
     );
+  });
+
+  it("accepts HTTPS provider URLs and rejects unsafe download targets", () => {
+    expect(
+      validateRemoteAudioUrl(
+        "https://prod-1.storage.jamendo.com/download/track/1/mp32/",
+      ).hostname,
+    ).toBe("prod-1.storage.jamendo.com");
+    for (const url of [
+      "http://example.com/song.mp3",
+      "https://localhost/song.mp3",
+      "https://127.0.0.1/song.mp3",
+      "https://10.2.3.4/song.mp3",
+      "https://[::1]/song.mp3",
+    ]) {
+      expect(() => validateRemoteAudioUrl(url)).toThrow("UNSAFE_AUDIO_URL");
+    }
+  });
+
+  it("revalidates every redirect before downloading audio", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://127.0.0.1/private.mp3" },
+        }),
+      ),
+    );
+    await expect(
+      downloadAudio(
+        "https://prod-1.storage.jamendo.com/download/track/1/mp32/",
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow("UNSAFE_AUDIO_URL");
   });
 });
