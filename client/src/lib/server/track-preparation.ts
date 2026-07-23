@@ -263,7 +263,11 @@ export async function prepareGameTracks(
       p_force_retry: forceRetry,
     },
   );
-  if (claim.status !== "claimed") return claim;
+  if (claim.status !== "claimed") {
+    return claim.total_count === undefined
+      ? claim
+      : gamePreparationStatus(client, code, userId);
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);

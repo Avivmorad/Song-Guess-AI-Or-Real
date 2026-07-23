@@ -98,10 +98,25 @@ export async function prefetchGameAudio(
         while (queue.length > 0) {
           const track = queue.shift();
           if (!track) return;
-          const response = await fetch(track.audio_url, { cache: "no-store" });
-          if (!response.ok) throw new Error("AUDIO_DOWNLOAD_FAILED");
-          const blob = await response.blob();
-          if (blob.size === 0) throw new Error("AUDIO_DOWNLOAD_FAILED");
+          const controller = new AbortController();
+          const timeout = globalThis.setTimeout(
+            () => controller.abort(),
+            20_000,
+          );
+          let blob: Blob;
+          try {
+            const response = await fetch(track.audio_url, {
+              cache: "no-store",
+              signal: controller.signal,
+            });
+            if (!response.ok) throw new Error("AUDIO_DOWNLOAD_FAILED");
+            blob = await response.blob();
+            if (blob.size === 0) throw new Error("AUDIO_DOWNLOAD_FAILED");
+          } catch {
+            throw new Error("AUDIO_DOWNLOAD_FAILED");
+          } finally {
+            globalThis.clearTimeout(timeout);
+          }
           downloaded.set(track.round_id, {
             objectUrl: URL.createObjectURL(blob),
             byteLength: blob.size,

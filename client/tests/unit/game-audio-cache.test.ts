@@ -131,4 +131,35 @@ describe("whole-game audio cache", () => {
       fetchAudio.mock.calls.filter(([url]) => String(url).endsWith("/b")),
     ).toHaveLength(2);
   });
+
+  it("turns a stalled download into a recoverable timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("URL", {
+        createObjectURL: vi.fn(),
+        revokeObjectURL: vi.fn(),
+      });
+      getGameAudioPlaylist.mockResolvedValue([
+        { round_id: "round-timeout", audio_url: "https://audio.test/stall" },
+      ]);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: string, init?: RequestInit) =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () =>
+                reject(new DOMException("Aborted", "AbortError")),
+              );
+            }),
+        ),
+      );
+
+      const load = prefetchGameAudio("stall1");
+      const rejection = expect(load).rejects.toThrow("AUDIO_DOWNLOAD_FAILED");
+      await vi.advanceTimersByTimeAsync(20_000);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
