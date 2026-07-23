@@ -1,12 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  clearGameAudioCache,
+  prefetchGameAudio,
+} from "@/lib/audio/game-audio-cache";
 import type { AnswerChoice, GameSettings, RoomState } from "@/lib/game/types";
 import {
   GameApiError,
   getRoomState,
   heartbeat,
   leaveRoom,
+  markGameAudioReady,
   markRoundAudioReady,
   playAgain,
   prepareRound,
@@ -31,6 +36,17 @@ type ActionName =
   | "retry"
   | null;
 
+export interface PreparationProgress {
+  stage: "server" | "download" | "failed";
+  serverReady: number;
+  downloaded: number;
+  total: number;
+  playerReady: number;
+  playerRequired: number;
+  timedOut: boolean;
+  stalledPlayers: Array<{ id: string; nickname: string }>;
+}
+
 export function useRoomController(code: string) {
   const [state, setState] = useState<RoomState | null>(null);
   const [fatalError, setFatalError] = useState<GameApiError | null>(null);
@@ -38,15 +54,13 @@ export function useRoomController(code: string) {
   const [connectionLost, setConnectionLost] = useState(false);
   const [busyAction, setBusyAction] = useState<ActionName>(null);
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const [preparationProgress, setPreparationProgress] =
+    useState<PreparationProgress | null>(null);
+  const [preparationAttempt, setPreparationAttempt] = useState(0);
   const refreshInFlight = useRef(false);
   const preparationInFlight = useRef(false);
   const mounted = useRef(true);
-  const preparationRoundId =
-    state?.room.phase === "preparing" ? state.round?.id : null;
-  const preparationStatus =
-    state?.room.phase === "preparing"
-      ? state.round?.preparation_status
-      : undefined;
+  const isPreparing = state?.room.phase === "preparing";
 
   const acceptState = useCallback(
     (nextState: RoomState, startedAt = Date.now()) => {
@@ -54,6 +68,9 @@ export function useRoomController(code: string) {
       const midpoint = (startedAt + Date.now()) / 2;
       setServerOffsetMs(new Date(nextState.server_now).getTime() - midpoint);
       setState(nextState);
+      if (nextState.room.phase !== "preparing") {
+        setPreparationProgress(null);
+      }
       setFatalError(null);
       setConnectionLost(false);
     },
@@ -115,36 +132,112 @@ export function useRoomController(code: string) {
   }, [refresh, state?.room.phase]);
 
   useEffect(() => {
-    if (!preparationRoundId) return;
-    if (preparationStatus === "ready" || preparationStatus === "failed") {
-      return;
-    }
-    const requestPreparation = async () => {
+    if (!isPreparing) return;
+
+    let cancelled = false;
+    let retryTimer: number | null = null;
+    const schedule = (delay: number) => {
+      if (cancelled) return;
+      retryTimer = window.setTimeout(() => void requestPreparation(), delay);
+    };
+    const requestPreparation = async (): Promise<void> => {
       if (preparationInFlight.current) return;
       preparationInFlight.current = true;
       try {
         const result = await prepareRound(code);
+        const total = Math.max(
+          0,
+          result.total_count ?? state?.round?.total ?? 0,
+        );
+        const serverReady = Math.max(0, result.ready_count ?? 0);
+        setPreparationProgress((current) => ({
+          stage: "server",
+          serverReady,
+          downloaded: current?.downloaded ?? 0,
+          total,
+          playerReady: result.player_ready_count ?? current?.playerReady ?? 0,
+          playerRequired:
+            result.player_required_count ?? current?.playerRequired ?? 0,
+          timedOut: result.timed_out ?? false,
+          stalledPlayers: result.stalled_players ?? [],
+        }));
         if (result.status === "failed") {
+          setPreparationProgress({
+            stage: "failed",
+            serverReady,
+            downloaded: 0,
+            total,
+            playerReady: result.player_ready_count ?? 0,
+            playerRequired: result.player_required_count ?? 0,
+            timedOut: result.timed_out ?? false,
+            stalledPlayers: result.stalled_players ?? [],
+          });
           setActionError(
             new GameApiError(result.error_code || "PREPARATION_FAILED").message,
           );
+          return;
+        }
+        if (result.status === "ready") {
+          setActionError("");
+          await prefetchGameAudio(code, (downloaded, playlistTotal) => {
+            if (cancelled) return;
+            setPreparationProgress({
+              stage: "download",
+              serverReady: total || playlistTotal,
+              downloaded,
+              total: playlistTotal,
+              playerReady: result.player_ready_count ?? 0,
+              playerRequired: result.player_required_count ?? 0,
+              timedOut: result.timed_out ?? false,
+              stalledPlayers: result.stalled_players ?? [],
+            });
+          });
+          if (cancelled) return;
+          const readyState = await markGameAudioReady(code);
+          acceptState(readyState);
+          if (readyState.room.phase === "preparing") schedule(1_000);
         } else {
-          await refresh(false);
+          schedule(result.status === "preparing" ? 1_000 : 50);
         }
       } catch (error) {
         const gameError =
           error instanceof GameApiError
             ? error
-            : new GameApiError("PREPARATION_FAILED");
+            : new GameApiError(
+                error instanceof Error &&
+                  error.message === "AUDIO_DOWNLOAD_FAILED"
+                  ? "AUDIO_DOWNLOAD_FAILED"
+                  : "PREPARATION_FAILED",
+              );
+        setPreparationProgress((current) =>
+          current ? { ...current, stage: "failed" } : current,
+        );
         setActionError(gameError.message);
+        schedule(2_000);
       } finally {
         preparationInFlight.current = false;
       }
     };
     void requestPreparation();
-    const interval = window.setInterval(() => void requestPreparation(), 5_000);
-    return () => window.clearInterval(interval);
-  }, [code, preparationRoundId, preparationStatus, refresh]);
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+    };
+  }, [
+    acceptState,
+    code,
+    isPreparing,
+    preparationAttempt,
+    state?.round?.audio_ready_count,
+    state?.round?.total,
+  ]);
+
+  useEffect(
+    () => () => {
+      clearGameAudioCache(code);
+    },
+    [code],
+  );
 
   useEffect(() => {
     const interval = window.setInterval(() => void refresh(true), 10_000);
@@ -198,6 +291,7 @@ export function useRoomController(code: string) {
     clearActionError: () => setActionError(""),
     connectionLost,
     busyAction,
+    preparationProgress,
     serverOffsetMs,
     refresh: () => refresh(true),
     toggleReady: (ready: boolean) =>
@@ -221,6 +315,7 @@ export function useRoomController(code: string) {
           return false;
         }
         await refresh(false);
+        setPreparationAttempt((current) => current + 1);
         return true;
       } catch (error) {
         const gameError =
@@ -235,12 +330,16 @@ export function useRoomController(code: string) {
     },
     remove: (playerId: string) =>
       runAction("remove", () => removePlayer(code, playerId)),
-    again: () => runAction("again", () => playAgain(code)),
+    again: () => {
+      clearGameAudioCache(code);
+      return runAction("again", () => playAgain(code));
+    },
     leave: async () => {
       setBusyAction("leave");
       setActionError("");
       try {
         await leaveRoom(code);
+        clearGameAudioCache(code);
         return true;
       } catch (error) {
         const gameError =

@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  getGameAudioElement,
+  getPrefetchedAudioUrl,
+} from "@/lib/audio/game-audio-cache";
 import type { ActiveRound, RoomPhase } from "@/lib/game/types";
 import { getRoundAudioUrl } from "@/lib/supabase/game-api";
 
@@ -32,7 +36,8 @@ export function useSynchronizedAudio({
   const [loadAttempt, setLoadAttempt] = useState(0);
   const roundId = round?.id ?? null;
   const fallbackAudioUrl = round?.audio_url ?? null;
-  const audioAvailable = round?.audio_available ?? false;
+  const audioAvailable =
+    (round?.audio_available ?? false) && phase !== "preparing";
   const startsAt = round?.starts_at ?? null;
   const audioDurationSeconds = round?.audio_duration_seconds ?? 0;
 
@@ -104,16 +109,21 @@ export function useSynchronizedAudio({
 
     void (async () => {
       try {
-        const sourceUrl =
-          fallbackAudioUrl || (await getRoundAudioUrl(code, roundId));
-        const response = await fetch(sourceUrl, { cache: "no-store" });
-        if (!response.ok) throw new Error("AUDIO_DOWNLOAD_FAILED");
-        const blob = await response.blob();
-        if (cancelled || blob.size === 0)
-          throw new Error("AUDIO_DOWNLOAD_FAILED");
-        const objectUrl = URL.createObjectURL(blob);
-        objectUrlRef.current = objectUrl;
-        const audio = new Audio(objectUrl);
+        const prefetchedUrl = getPrefetchedAudioUrl(code, roundId);
+        let playableUrl = prefetchedUrl;
+        if (!playableUrl) {
+          const sourceUrl =
+            fallbackAudioUrl || (await getRoundAudioUrl(code, roundId));
+          const response = await fetch(sourceUrl, { cache: "no-store" });
+          if (!response.ok) throw new Error("AUDIO_DOWNLOAD_FAILED");
+          const blob = await response.blob();
+          if (cancelled || blob.size === 0)
+            throw new Error("AUDIO_DOWNLOAD_FAILED");
+          playableUrl = URL.createObjectURL(blob);
+          objectUrlRef.current = playableUrl;
+        }
+        const audio = getGameAudioElement();
+        audio.src = playableUrl;
         audio.preload = "auto";
         audioRef.current = audio;
         await new Promise<void>((resolve, reject) => {

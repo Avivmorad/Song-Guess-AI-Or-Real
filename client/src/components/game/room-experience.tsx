@@ -89,10 +89,12 @@ export function RoomExperience({ code }: { code: string }) {
             serverOffsetMs={controller.serverOffsetMs}
             busyAction={controller.busyAction}
             actionError={controller.actionError}
+            preparationProgress={controller.preparationProgress}
             onAnswer={controller.answer}
             onAgain={controller.again}
             onAudioReady={controller.reportAudioReady}
             onRetryPreparation={controller.retryPreparation}
+            onRemove={controller.remove}
             onLeave={leaveAndReturnHome}
           />
         )}

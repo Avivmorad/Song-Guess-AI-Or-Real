@@ -4,6 +4,7 @@ import { BoltIcon, CheckIcon, VolumeIcon } from "@/components/icons";
 import { Button, Panel, Spinner, StatusMessage } from "@/components/ui";
 import { useClock } from "@/hooks/use-clock";
 import { useSynchronizedAudio } from "@/hooks/use-synchronized-audio";
+import type { PreparationProgress } from "@/hooks/use-room-controller";
 import { formatScore } from "@/lib/game/scoring";
 import type { AnswerChoice, RoomState } from "@/lib/game/types";
 import { Leaderboard } from "./leaderboard";
@@ -13,10 +14,12 @@ interface GameScreensProps {
   serverOffsetMs: number;
   busyAction: string | null;
   actionError: string;
+  preparationProgress: PreparationProgress | null;
   onAnswer: (choice: AnswerChoice) => Promise<boolean>;
   onAgain: () => Promise<boolean>;
   onAudioReady: (roundId: string) => Promise<boolean>;
   onRetryPreparation: () => Promise<boolean>;
+  onRemove: (playerId: string) => Promise<boolean>;
   onLeave: () => Promise<void>;
 }
 
@@ -77,10 +80,12 @@ export function GameScreens({
   serverOffsetMs,
   busyAction,
   actionError,
+  preparationProgress,
   onAnswer,
   onAgain,
   onAudioReady,
   onRetryPreparation,
+  onRemove,
   onLeave,
 }: GameScreensProps) {
   const now = useClock();
@@ -100,43 +105,90 @@ export function GameScreens({
   });
 
   if (state.room.phase === "preparing" && round) {
-    const failed = round.preparation_status === "failed";
-    const serverReady = round.preparation_status === "ready";
+    const failed =
+      preparationProgress?.stage === "failed" ||
+      round.preparation_status === "failed";
+    const total = preparationProgress?.total || round.total;
+    const serverReady = preparationProgress?.serverReady || 0;
+    const downloaded = preparationProgress?.downloaded || 0;
+    const downloading = preparationProgress?.stage === "download";
+    const timedOut = preparationProgress?.timedOut ?? false;
+    const percent =
+      total > 0
+        ? Math.round(((downloading ? downloaded : serverReady) / total) * 100)
+        : 0;
     return (
       <section
         className="phase-screen preparing-screen"
         aria-labelledby="preparing-title"
       >
-        <div className="round-kicker">
-          Round {round.number} of {round.total}
-        </div>
-        <div className="preparation-orb" aria-hidden="true">
-          {!failed && <Spinner label="" />}
+        <div className="round-kicker">Preparing all {round.total} rounds</div>
+        <div
+          className="preparation-orb"
+          aria-hidden="true"
+          style={
+            { "--preparation-progress": `${percent}%` } as React.CSSProperties
+          }
+        >
+          {!failed && <strong>{percent}%</strong>}
           {failed && "!"}
         </div>
-        <p className="eyebrow">Preparing the next track</p>
+        <p className="eyebrow">One download before the game</p>
         <h1 id="preparing-title">
           {failed
-            ? "The track could not be prepared."
-            : serverReady
-              ? "Downloading for every player."
-              : "Finding and caching your song."}
+            ? "The playlist could not be prepared."
+            : downloading
+              ? "Downloading your complete playlist."
+              : "Finding and caching every song."}
         </h1>
         <p aria-live="polite">
           {failed
             ? "Nothing will start with broken audio. The host can safely retry."
-            : serverReady
-              ? `${round.audio_ready_count}/${round.audio_required_count} players have audio ready.`
-              : "The countdown begins only after the audio is available."}
+            : downloading
+              ? `${downloaded}/${total} songs downloaded to this device.`
+              : `${serverReady}/${total} songs prepared. Rounds will start without more download pauses.`}
         </p>
-        {serverReady && (
-          <AudioStatus
-            audioState={audio.audioState}
-            muted={audio.muted}
-            onActivate={audio.activate}
-            onMute={audio.toggleMuted}
-            onRetry={audio.retry}
-          />
+        {!failed && preparationProgress && (
+          <p>
+            {preparationProgress.playerReady}/
+            {preparationProgress.playerRequired} players ready.
+          </p>
+        )}
+        {timedOut && state.me.is_host && (
+          <Panel className="preparation-timeout">
+            <h2>Some players are still loading.</h2>
+            <p>
+              The game is paused. Retry downloads or remove a stalled player.
+            </p>
+            <Button
+              disabled={busyAction === "retry"}
+              onClick={() => void onRetryPreparation()}
+            >
+              {busyAction === "retry" ? (
+                <Spinner label="Retrying preparation" />
+              ) : (
+                "Retry missing audio"
+              )}
+            </Button>
+            {(preparationProgress?.stalledPlayers ?? []).map((player) => (
+              <div className="stalled-player" key={player.id}>
+                <span>{player.nickname}</span>
+                <Button
+                  variant="secondary"
+                  disabled={busyAction === "remove"}
+                  onClick={() => void onRemove(player.id)}
+                >
+                  Remove player
+                </Button>
+              </div>
+            ))}
+          </Panel>
+        )}
+        {timedOut && !state.me.is_host && (
+          <p className="waiting-host">
+            Loading timed out. The game is paused while the host decides what to
+            do.
+          </p>
         )}
         {failed && state.me.is_host && (
           <Button
@@ -146,7 +198,7 @@ export function GameScreens({
             {busyAction === "retry" ? (
               <Spinner label="Retrying track preparation" />
             ) : (
-              "Retry preparation"
+              "Retry playlist preparation"
             )}
           </Button>
         )}

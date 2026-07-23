@@ -14,10 +14,11 @@ type RoomRpcName =
   | "heartbeat"
   | "set_ready"
   | "update_settings"
-  | "start_game"
+  | "start_preloaded_game"
   | "submit_answer"
   | "remove_player"
   | "play_again"
+  | "mark_game_audio_ready"
   | "mark_round_audio_ready";
 
 const safeMessages: Record<string, string> = {
@@ -46,6 +47,8 @@ const safeMessages: Record<string, string> = {
   INVALID_RESPONSE: "The game service returned an invalid response.",
   ROUND_NOT_ACTIVE: "That round is no longer active.",
   AUDIO_NOT_READY: "The round audio is still preparing.",
+  AUDIO_DOWNLOAD_FAILED:
+    "Some playlist audio could not be downloaded. Completed tracks were kept; retry to fetch only the missing tracks.",
   PREPARATION_FAILED:
     "The next track could not be prepared. The host can retry.",
   PREPARATION_NOT_CONFIGURED:
@@ -143,7 +146,7 @@ export async function updateSettings(
 }
 
 export async function startGame(code: string): Promise<RoomState> {
-  return rpcRoomState("start_game", { p_code: code });
+  return rpcRoomState("start_preloaded_game", { p_code: code });
 }
 
 export async function submitAnswer(
@@ -184,6 +187,14 @@ export interface PreparationResponse {
   status: "claimed" | "preparing" | "ready" | "failed" | string;
   round_id?: string;
   error_code?: string;
+  total_count?: number;
+  ready_count?: number;
+  failed_count?: number;
+  player_ready_count?: number;
+  player_required_count?: number;
+  audio_preload_deadline?: string | null;
+  timed_out?: boolean;
+  stalled_players?: Array<{ id: string; nickname: string }>;
 }
 
 export async function prepareRound(
@@ -216,6 +227,31 @@ export async function getRoundAudioUrl(
     throw new GameApiError(payload.error_code || "AUDIO_NOT_READY");
   }
   return payload.audio_url;
+}
+
+export interface GameAudioTrack {
+  round_id: string;
+  audio_url: string;
+}
+
+export async function getGameAudioPlaylist(
+  code: string,
+): Promise<GameAudioTrack[]> {
+  const response = await authenticatedFetch(
+    `/api/rooms/${encodeURIComponent(code)}/playlist`,
+  );
+  const payload = (await response.json()) as {
+    tracks?: GameAudioTrack[];
+    error_code?: string;
+  };
+  if (!response.ok || !payload.tracks) {
+    throw new GameApiError(payload.error_code || "AUDIO_NOT_READY");
+  }
+  return payload.tracks;
+}
+
+export async function markGameAudioReady(code: string): Promise<RoomState> {
+  return rpcRoomState("mark_game_audio_ready", { p_code: code });
 }
 
 export async function removePlayer(
