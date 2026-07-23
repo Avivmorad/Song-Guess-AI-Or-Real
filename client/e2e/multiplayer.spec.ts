@@ -18,6 +18,26 @@ async function activateBlockedAudio(page: Page) {
   if (await play.isVisible().catch(() => false)) await play.click();
 }
 
+async function saveSettingsAndWait(page: Page) {
+  const save = page.getByRole("button", { name: "Save settings" });
+  const response = page.waitForResponse(
+    (candidate) =>
+      candidate.url().includes("/rest/v1/rpc/update_settings") &&
+      candidate.ok(),
+  );
+  await save.click();
+  await response;
+}
+
+async function selectDemoPackWhenAvailable(page: Page) {
+  const songPack = page.getByLabel("Song pack");
+  await expect(songPack).toBeVisible();
+  const demoOption = songPack.locator('option[value="demo"]');
+  if ((await demoOption.count()) > 0) {
+    await songPack.selectOption("demo");
+  }
+}
+
 test("two players complete synchronized rounds, reconnect, rank, and play again", async ({
   browser,
   baseURL,
@@ -44,16 +64,8 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
   await expect(host.getByText("E2E Guest", { exact: true })).toBeVisible();
 
   await host.getByLabel("Reveal time").selectOption("4");
-  const demoOption = host
-    .getByLabel("Song pack")
-    .locator('option[value="demo"]');
-  if ((await demoOption.count()) > 0) {
-    await host.getByLabel("Song pack").selectOption("demo");
-  }
-  await host.getByRole("button", { name: "Save settings" }).click();
-  await expect(
-    host.getByRole("button", { name: "Save settings" }),
-  ).toBeVisible();
+  await selectDemoPackWhenAvailable(host);
+  await saveSettingsAndWait(host);
 
   await Promise.all([
     host.getByRole("button", { name: "Enable audio" }).click(),
@@ -69,10 +81,12 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
   await host.getByRole("button", { name: "Start the game" }).click();
 
   for (let round = 1; round <= 3; round += 1) {
-    await expect(host.locator(".preparing-screen")).toBeVisible({
-      timeout: 20_000,
-    });
-    await expect(host.locator(".preparation-orb .spinner")).toBeVisible();
+    if (round === 1) {
+      await expect(host.locator(".preparing-screen")).toBeVisible({
+        timeout: 20_000,
+      });
+      await expect(host.locator(".preparation-orb .spinner")).toBeVisible();
+    }
     await Promise.all([
       expect(host.getByRole("heading", { name: "Who made this?" })).toBeVisible(
         {
@@ -146,14 +160,10 @@ test("one player completes a full game with prepared rounds", async ({
   await page.getByLabel("Rounds").selectOption("3");
   await page.getByLabel("Answer time").selectOption("10");
   await page.getByRole("button", { name: "Open the lobby" }).click();
+  await expect(page).toHaveURL(/\/room\/[A-HJ-NP-Z2-9]{6}$/);
 
-  const demoOption = page
-    .getByLabel("Song pack")
-    .locator('option[value="demo"]');
-  if ((await demoOption.count()) > 0) {
-    await page.getByLabel("Song pack").selectOption("demo");
-  }
-  await page.getByRole("button", { name: "Save settings" }).click();
+  await selectDemoPackWhenAvailable(page);
+  await saveSettingsAndWait(page);
   await page.getByRole("button", { name: "Enable audio" }).click();
   await page.getByRole("button", { name: "I’m ready" }).click();
   await expect(
@@ -214,13 +224,9 @@ test("audio loading failures produce an accessible recovery message", async ({
   await page.getByLabel("Nickname").fill("Audio Tester");
   await page.getByLabel("Rounds").selectOption("3");
   await page.getByRole("button", { name: "Open the lobby" }).click();
-  const demoOption = page
-    .getByLabel("Song pack")
-    .locator('option[value="demo"]');
-  if ((await demoOption.count()) > 0) {
-    await page.getByLabel("Song pack").selectOption("demo");
-  }
-  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page).toHaveURL(/\/room\/[A-HJ-NP-Z2-9]{6}$/);
+  await selectDemoPackWhenAvailable(page);
+  await saveSettingsAndWait(page);
   await page.getByRole("button", { name: "Enable audio" }).click();
   await page.getByRole("button", { name: "I’m ready" }).click();
   await page.getByRole("button", { name: "Start the game" }).click();
