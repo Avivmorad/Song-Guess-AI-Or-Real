@@ -16,6 +16,9 @@ interface PreparationClaim {
   error_code?: string;
   used_provider_track_ids?: string[];
   storage_path?: string;
+  total_count?: number;
+  ready_count?: number;
+  failed_count?: number;
 }
 
 interface JamendoTrack {
@@ -234,7 +237,18 @@ async function prepareJamendoRound(
   throw new Error("NO_ELIGIBLE_JAMENDO_TRACK");
 }
 
-export async function prepareCurrentRound(
+async function gamePreparationStatus(
+  client: SupabaseClient,
+  code: string,
+  userId: string,
+) {
+  return rpc<PreparationClaim>(client, "service_game_preparation_status", {
+    p_code: code,
+    p_user_id: userId,
+  });
+}
+
+export async function prepareGameTracks(
   code: string,
   userId: string,
   forceRetry: boolean,
@@ -249,12 +263,19 @@ export async function prepareCurrentRound(
       p_force_retry: forceRetry,
     },
   );
-  if (claim.status !== "claimed") return claim;
+  if (claim.status !== "claimed") {
+    return claim.total_count === undefined
+      ? claim
+      : gamePreparationStatus(client, code, userId);
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
-    return await prepareJamendoRound(claim, controller.signal);
+    const completed = await prepareJamendoRound(claim, controller.signal);
+    return claim.total_count === undefined
+      ? completed
+      : gamePreparationStatus(client, code, userId);
   } catch (error) {
     const errorCode = publicPreparationError(error);
     const failed = await rpc<PreparationClaim>(
@@ -265,9 +286,9 @@ export async function prepareCurrentRound(
         p_error_code: errorCode,
       },
     );
-    return failed.status === "ready"
+    return claim.total_count === undefined
       ? failed
-      : { ...claim, status: "failed", error_code: errorCode };
+      : gamePreparationStatus(client, code, userId);
   } finally {
     clearTimeout(timeout);
   }

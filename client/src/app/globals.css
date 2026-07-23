@@ -1053,38 +1053,6 @@ select.input {
   padding: 0 8px;
   font-size: 0.67rem;
 }
-.audio-check {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px 20px;
-  align-items: center;
-  padding: 17px 20px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.025);
-}
-.audio-check > div {
-  display: grid;
-  gap: 4px;
-}
-.audio-check strong {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 0.82rem;
-}
-.audio-check strong svg {
-  color: var(--acid);
-}
-.audio-check span,
-.audio-check small {
-  color: var(--muted);
-  font-size: 0.68rem;
-}
-.audio-check small {
-  grid-column: 1 / -1;
-  color: var(--danger);
-}
 .lobby-settings {
   grid-template-columns: 1fr 1fr;
 }
@@ -1577,6 +1545,7 @@ select.input {
   place-content: center;
 }
 .preparation-orb {
+  --preparation-progress: 0%;
   display: grid;
   width: clamp(90px, 18vw, 140px);
   aspect-ratio: 1;
@@ -1585,12 +1554,17 @@ select.input {
   color: var(--acid);
   border: 1px solid rgba(214, 255, 85, 0.32);
   border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    rgba(214, 255, 85, 0.12),
-    transparent 68%
-  );
+  background:
+    radial-gradient(circle, var(--surface) 58%, transparent 60%),
+    conic-gradient(
+      var(--acid) var(--preparation-progress),
+      rgba(214, 255, 85, 0.12) 0
+    );
   font-size: 2.5rem;
+}
+.preparation-orb strong {
+  font-size: clamp(1rem, 4vw, 1.5rem);
+  font-variant-numeric: tabular-nums;
 }
 .preparation-orb .spinner {
   width: clamp(42px, 8vw, 66px);

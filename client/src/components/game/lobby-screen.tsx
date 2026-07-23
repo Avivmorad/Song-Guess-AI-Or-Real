@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { CheckIcon, CopyIcon, CrownIcon, VolumeIcon } from "@/components/icons";
+import { CheckIcon, CopyIcon, CrownIcon } from "@/components/icons";
 import { Button, Panel, Spinner, StatusMessage } from "@/components/ui";
+import { unlockGameAudio } from "@/lib/audio/game-audio-cache";
 import { getStartGate } from "@/lib/game/room-rules";
 import type { GameSettings, RoomState } from "@/lib/game/types";
 
@@ -15,66 +16,6 @@ interface LobbyProps {
   onStart: () => Promise<boolean>;
   onRemove: (playerId: string) => Promise<boolean>;
   onLeave: () => Promise<void>;
-}
-
-function AudioCheck() {
-  const [enabled, setEnabled] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  async function enableAudio() {
-    try {
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-          .webkitAudioContext;
-      if (!AudioContextClass) throw new Error("WEB_AUDIO_UNAVAILABLE");
-      const context = new AudioContextClass();
-      await context.resume();
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      gain.gain.value = 0.015;
-      oscillator.frequency.value = 440;
-      oscillator.connect(gain).connect(context.destination);
-      oscillator.start();
-      oscillator.stop(context.currentTime + 0.08);
-      oscillator.addEventListener("ended", () => void context.close(), {
-        once: true,
-      });
-      setEnabled(true);
-      setFailed(false);
-    } catch {
-      setFailed(true);
-    }
-  }
-
-  return (
-    <div className="audio-check">
-      <div>
-        <strong>
-          <VolumeIcon aria-hidden="true" /> Audio check
-        </strong>
-        <span>
-          {enabled
-            ? "This browser is ready for playback."
-            : "Enable sound before the host starts."}
-        </span>
-      </div>
-      <Button type="button" variant="secondary" onClick={enableAudio}>
-        {enabled ? (
-          <>
-            <CheckIcon aria-hidden="true" /> Ready
-          </>
-        ) : (
-          "Enable audio"
-        )}
-      </Button>
-      {failed && (
-        <small role="alert">
-          Audio is blocked. Check this site&apos;s sound permission.
-        </small>
-      )}
-    </div>
-  );
 }
 
 export function LobbyScreen({
@@ -123,6 +64,16 @@ export function LobbyScreen({
       }
     }
     await copyRoomLink();
+  }
+
+  function toggleReady() {
+    if (!state.me.is_ready) void unlockGameAudio();
+    void onReady(!state.me.is_ready);
+  }
+
+  function startGame() {
+    void unlockGameAudio();
+    void onStart();
   }
 
   return (
@@ -221,8 +172,6 @@ export function LobbyScreen({
             </ul>
           )}
         </Panel>
-
-        <AudioCheck />
       </div>
 
       <aside className="lobby-side-column">
@@ -390,7 +339,7 @@ export function LobbyScreen({
             }
             variant={state.me.is_ready ? "secondary" : "primary"}
             disabled={busyAction !== null}
-            onClick={() => void onReady(!state.me.is_ready)}
+            onClick={toggleReady}
           >
             {busyAction === "ready" ? (
               <Spinner label="Updating" />
@@ -404,7 +353,7 @@ export function LobbyScreen({
             <>
               <Button
                 disabled={!gate.canStart || busyAction !== null}
-                onClick={() => void onStart()}
+                onClick={startGame}
               >
                 {busyAction === "start" ? (
                   <Spinner label="Starting" />

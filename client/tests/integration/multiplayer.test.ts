@@ -49,7 +49,7 @@ async function waitForPhase(
   throw new Error(`Timed out waiting for phase ${phase}`);
 }
 
-async function prepareDemoRound(
+async function prepareDemoGame(
   admin: SupabaseClient,
   host: SupabaseClient,
   players: SupabaseClient[],
@@ -58,17 +58,20 @@ async function prepareDemoRound(
   const preparing = await waitForPhase(host, code, "preparing");
   const user = (await host.auth.getUser()).data.user;
   expect(user).not.toBeNull();
-  const prepared = await admin.rpc("service_claim_round_preparation", {
-    p_code: code,
-    p_user_id: user!.id,
-    p_force_retry: false,
-  });
-  expect(prepared.error).toBeNull();
-  expect((prepared.data as { status: string }).status).toBe("ready");
-  for (const player of players) {
-    const ready = await player.rpc("mark_round_audio_ready", {
+  let status = "";
+  for (let attempt = 0; attempt < preparing.round!.total; attempt += 1) {
+    const prepared = await admin.rpc("service_claim_round_preparation", {
       p_code: code,
-      p_round_id: preparing.round!.id,
+      p_user_id: user!.id,
+      p_force_retry: false,
+    });
+    expect(prepared.error).toBeNull();
+    status = (prepared.data as { status: string }).status;
+  }
+  expect(status).toBe("ready");
+  for (const player of players) {
+    const ready = await player.rpc("mark_game_audio_ready", {
+      p_code: code,
     });
     expect(ready.error).toBeNull();
   }
@@ -174,14 +177,16 @@ describe.skipIf(!supabaseUrl || !supabaseKey || !serviceRoleKey)(
         expect(ready.error).toBeNull();
       }
 
-      const started = await host.rpc("start_game", { p_code: roomCode });
+      const started = await host.rpc("start_preloaded_game", {
+        p_code: roomCode,
+      });
       expect(started.error).toBeNull();
       expect((started.data as RoomState).room.phase).toBe("preparing");
 
       const directRead = await guest.from("answers").select("*");
       expect(directRead.error).not.toBeNull();
 
-      const hostPlaying = await prepareDemoRound(
+      const hostPlaying = await prepareDemoGame(
         admin!,
         host,
         [host, guest],
@@ -264,7 +269,7 @@ describe.skipIf(!supabaseUrl || !supabaseKey || !serviceRoleKey)(
       );
     });
 
-    it("completes a solo game through per-round preparation", async () => {
+    it("completes a solo game after preparing the full playlist once", async () => {
       const solo = isolatedClient();
       await signIn(solo);
       const created = await solo.rpc("create_room", {
@@ -284,11 +289,14 @@ describe.skipIf(!supabaseUrl || !supabaseKey || !serviceRoleKey)(
       expect(
         (await solo.rpc("set_ready", { p_code: code, p_ready: true })).error,
       ).toBeNull();
-      const started = await solo.rpc("start_game", { p_code: code });
+      const started = await solo.rpc("start_preloaded_game", { p_code: code });
       expect(started.error).toBeNull();
 
+      let playing = await prepareDemoGame(admin!, solo, [solo], code);
       for (let roundNumber = 1; roundNumber <= 3; roundNumber += 1) {
-        const playing = await prepareDemoRound(admin!, solo, [solo], code);
+        if (roundNumber > 1) {
+          playing = await waitForPhase(solo, code, "playing");
+        }
         expect(playing.round?.number).toBe(roundNumber);
         const answer = await solo.rpc("submit_answer", {
           p_code: code,

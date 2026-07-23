@@ -73,8 +73,10 @@ export type Database = {
       };
       games: {
         Row: {
+          audio_preload_deadline: string | null;
           created_at: string;
           finished_at: string | null;
+          full_game_audio_preload: boolean;
           game_number: number;
           id: string;
           room_id: string;
@@ -82,8 +84,10 @@ export type Database = {
           status: string;
         };
         Insert: {
+          audio_preload_deadline?: string | null;
           created_at?: string;
           finished_at?: string | null;
+          full_game_audio_preload?: boolean;
           game_number: number;
           id?: string;
           room_id: string;
@@ -91,8 +95,10 @@ export type Database = {
           status?: string;
         };
         Update: {
+          audio_preload_deadline?: string | null;
           created_at?: string;
           finished_at?: string | null;
+          full_game_audio_preload?: boolean;
           game_number?: number;
           id?: string;
           room_id?: string;
@@ -386,6 +392,10 @@ export type Database = {
       };
       leave_room: { Args: { p_code: string }; Returns: Json };
       play_again: { Args: { p_code: string }; Returns: Json };
+      mark_game_audio_ready: {
+        Args: { p_code: string };
+        Returns: Json;
+      };
       mark_round_audio_ready: {
         Args: { p_code: string; p_round_id: string };
         Returns: Json;
@@ -396,6 +406,7 @@ export type Database = {
       };
       set_ready: { Args: { p_code: string; p_ready: boolean }; Returns: Json };
       start_game: { Args: { p_code: string }; Returns: Json };
+      start_preloaded_game: { Args: { p_code: string }; Returns: Json };
       submit_answer: {
         Args: {
           p_choice: Database["public"]["Enums"]["answer_choice"];

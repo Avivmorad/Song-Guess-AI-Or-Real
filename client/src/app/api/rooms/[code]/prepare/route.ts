@@ -1,7 +1,8 @@
 import { authenticateRequest } from "@/lib/server/supabase-admin";
-import { prepareCurrentRound } from "@/lib/server/track-preparation";
+import { prepareGameTracks } from "@/lib/server/track-preparation";
 
 export const runtime = "nodejs";
+export const maxDuration = 45;
 
 function safeError(error: unknown) {
   const raw =
@@ -31,7 +32,7 @@ export async function POST(
     const user = await authenticateRequest(request);
     const { code } = await context.params;
     const forceRetry = new URL(request.url).searchParams.get("retry") === "1";
-    const result = await prepareCurrentRound(code, user.id, forceRetry);
+    const result = await prepareGameTracks(code, user.id, forceRetry);
     const status =
       result.status === "failed"
         ? 503

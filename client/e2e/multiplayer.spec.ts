@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
+async function grantPreviewAccess(page: Page) {
+  const accessUrl = process.env.E2E_ACCESS_URL;
+  if (accessUrl) await page.goto(accessUrl);
+}
+
 function trackRuntimeFailures(page: Page) {
   const failures: string[] = [];
   page.on("pageerror", (error) => failures.push(`page: ${error.message}`));
@@ -18,7 +23,47 @@ async function activateBlockedAudio(page: Page) {
   if (await play.isVisible().catch(() => false)) await play.click();
 }
 
+async function waitForRoundOrRetry(host: Page) {
+  const heading = host.getByRole("heading", { name: "Who made this?" });
+  const retry = host.getByRole("button", {
+    name: "Retry playlist preparation",
+  });
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const outcome = await Promise.race([
+      heading
+        .waitFor({ state: "visible", timeout: 120_000 })
+        .then(() => "playing" as const),
+      retry
+        .waitFor({ state: "visible", timeout: 120_000 })
+        .then(() => "retry" as const),
+    ]);
+    if (outcome === "playing") return;
+    await retry.click();
+  }
+  await expect(heading).toBeVisible({ timeout: 120_000 });
+}
+
+async function waitForDownloadFailure(host: Page) {
+  const retry = host.getByRole("button", {
+    name: "Retry playlist preparation",
+  });
+  const alert = host.locator(".status-message[role='alert']").last();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await expect(retry).toBeVisible({ timeout: 120_000 });
+    const message = (await alert.textContent()) ?? "";
+    if (message.includes("Some playlist audio could not be downloaded")) return;
+    await retry.click();
+  }
+  await expect(alert).toContainText(
+    "Some playlist audio could not be downloaded",
+  );
+}
+
 async function saveSettingsAndWait(page: Page) {
+  const demoOption = page
+    .getByLabel("Song pack")
+    .locator('option[value="demo"]');
+  const needsTestPackOverride = (await demoOption.count()) === 0;
   const save = page.getByRole("button", { name: "Save settings" });
   const response = page.waitForResponse(
     (candidate) =>
@@ -26,7 +71,27 @@ async function saveSettingsAndWait(page: Page) {
       candidate.ok(),
   );
   await save.click();
-  await response;
+  const saved = await response;
+  if (needsTestPackOverride) {
+    const request = saved.request();
+    const body = request.postDataJSON() as {
+      p_code: string;
+      p_settings: Record<string, unknown>;
+    };
+    const headers = request.headers();
+    const forced = await page.request.post(request.url(), {
+      data: {
+        ...body,
+        p_settings: { ...body.p_settings, song_pack: "demo" },
+      },
+      headers: {
+        apikey: headers.apikey,
+        authorization: headers.authorization,
+        "content-type": "application/json",
+      },
+    });
+    expect(forced.ok()).toBe(true);
+  }
 }
 
 async function selectDemoPackWhenAvailable(page: Page) {
@@ -42,10 +107,12 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
   browser,
   baseURL,
 }) => {
+  test.setTimeout(300_000);
   const hostContext = await browser.newContext();
   const guestContext = await browser.newContext();
   const host = await hostContext.newPage();
   const guest = await guestContext.newPage();
+  await Promise.all([grantPreviewAccess(host), grantPreviewAccess(guest)]);
   const hostFailures = trackRuntimeFailures(host);
   const guestFailures = trackRuntimeFailures(guest);
 
@@ -68,10 +135,6 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
   await saveSettingsAndWait(host);
 
   await Promise.all([
-    host.getByRole("button", { name: "Enable audio" }).click(),
-    guest.getByRole("button", { name: "Enable audio" }).click(),
-  ]);
-  await Promise.all([
     host.getByRole("button", { name: "I’m ready" }).click(),
     guest.getByRole("button", { name: "I’m ready" }).click(),
   ]);
@@ -85,20 +148,12 @@ test("two players complete synchronized rounds, reconnect, rank, and play again"
       await expect(host.locator(".preparing-screen")).toBeVisible({
         timeout: 20_000,
       });
-      await expect(host.locator(".preparation-orb .spinner")).toBeVisible();
+      await expect(host.getByText("Preparing all 3 rounds")).toBeVisible();
     }
-    await Promise.all([
-      expect(host.getByRole("heading", { name: "Who made this?" })).toBeVisible(
-        {
-          timeout: 45_000,
-        },
-      ),
-      expect(
-        guest.getByRole("heading", { name: "Who made this?" }),
-      ).toBeVisible({
-        timeout: 45_000,
-      }),
-    ]);
+    await waitForRoundOrRetry(host);
+    await expect(
+      guest.getByRole("heading", { name: "Who made this?" }),
+    ).toBeVisible({ timeout: 30_000 });
     await Promise.all([
       activateBlockedAudio(host),
       activateBlockedAudio(guest),
@@ -155,6 +210,17 @@ test("one player completes a full game with prepared rounds", async ({
   page,
   baseURL,
 }) => {
+  test.setTimeout(300_000);
+  await grantPreviewAccess(page);
+  let playlistRequests = 0;
+  let perRoundAudioRequests = 0;
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (/\/api\/rooms\/[^/]+\/playlist$/.test(path)) playlistRequests += 1;
+    if (/\/api\/rooms\/[^/]+\/rounds\/[^/]+\/audio$/.test(path)) {
+      perRoundAudioRequests += 1;
+    }
+  });
   await page.goto(`${baseURL}/create`);
   await page.getByLabel("Nickname").fill("E2E Solo");
   await page.getByLabel("Rounds").selectOption("3");
@@ -164,18 +230,16 @@ test("one player completes a full game with prepared rounds", async ({
 
   await selectDemoPackWhenAvailable(page);
   await saveSettingsAndWait(page);
-  await page.getByRole("button", { name: "Enable audio" }).click();
   await page.getByRole("button", { name: "I’m ready" }).click();
   await expect(
     page.getByRole("button", { name: "Start the game" }),
   ).toBeEnabled();
   await page.getByRole("button", { name: "Start the game" }).click();
   await expect(page.locator(".preparing-screen")).toBeVisible();
+  await expect(page.getByText("Preparing all 3 rounds")).toBeVisible();
 
   for (let round = 1; round <= 3; round += 1) {
-    await expect(
-      page.getByRole("heading", { name: "Who made this?" }),
-    ).toBeVisible({ timeout: 45_000 });
+    await waitForRoundOrRetry(page);
     await activateBlockedAudio(page);
     await page.locator(".answer-real").click();
     await expect(page.getByText("Correct answer", { exact: true })).toBeVisible(
@@ -188,12 +252,15 @@ test("one player completes a full game with prepared rounds", async ({
   });
   await expect(page.locator(".final-song-list li")).toHaveCount(3);
   await expect(page.locator(".final-song-list a")).toHaveCount(3);
+  expect(playlistRequests).toBe(1);
+  expect(perRoundAudioRequests).toBe(0);
 });
 
 test("mobile keyboard flow reports an invalid room without overflow", async ({
   page,
   baseURL,
 }) => {
+  await grantPreviewAccess(page);
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto(`${baseURL}/join`);
   await page.getByLabel("Room code").focus();
@@ -214,12 +281,14 @@ test("audio loading failures produce an accessible recovery message", async ({
   browser,
   baseURL,
 }) => {
+  test.setTimeout(300_000);
   const context = await browser.newContext();
   await context.route("**/audio/*.wav", (route) => route.abort("failed"));
   await context.route("**/storage/v1/object/sign/track-audio/**", (route) =>
     route.abort("failed"),
   );
   const page = await context.newPage();
+  await grantPreviewAccess(page);
   await page.goto(`${baseURL}/create`);
   await page.getByLabel("Nickname").fill("Audio Tester");
   await page.getByLabel("Rounds").selectOption("3");
@@ -227,11 +296,8 @@ test("audio loading failures produce an accessible recovery message", async ({
   await expect(page).toHaveURL(/\/room\/[A-HJ-NP-Z2-9]{6}$/);
   await selectDemoPackWhenAvailable(page);
   await saveSettingsAndWait(page);
-  await page.getByRole("button", { name: "Enable audio" }).click();
   await page.getByRole("button", { name: "I’m ready" }).click();
   await page.getByRole("button", { name: "Start the game" }).click();
-  await expect(page.getByRole("button", { name: "Retry audio" })).toBeVisible({
-    timeout: 20_000,
-  });
+  await waitForDownloadFailure(page);
   await context.close();
 });

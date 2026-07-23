@@ -1,9 +1,22 @@
 begin;
 
-select plan(38);
+select plan(54);
 
 select has_schema('private', 'private schema exists');
 select has_table('public', 'rooms', 'rooms table exists');
+select has_column(
+  'public',
+  'games',
+  'full_game_audio_preload',
+  'games can opt into whole-game audio preloading'
+);
+select col_default_is(
+  'public',
+  'games',
+  'full_game_audio_preload',
+  'false',
+  'legacy games retain per-round preparation by default'
+);
 select has_table('public', 'players', 'players table exists');
 select has_table('public', 'games', 'games table exists');
 select has_table('public', 'rounds', 'rounds table exists');
@@ -66,6 +79,12 @@ select has_function(
 );
 select has_function(
   'public',
+  'mark_game_audio_ready',
+  array['text'],
+  'whole-game audio readiness RPC exists'
+);
+select has_function(
+  'public',
   'service_claim_round_preparation',
   array['text', 'uuid', 'boolean'],
   'service preparation claim RPC exists'
@@ -75,6 +94,12 @@ select has_function(
   'service_round_audio_access',
   array['text', 'uuid', 'uuid'],
   'service audio access RPC exists'
+);
+select has_function(
+  'public',
+  'service_game_audio_access',
+  array['text', 'uuid'],
+  'service whole-game audio access RPC exists'
 );
 select has_function(
   'private',
@@ -123,6 +148,15 @@ select is(
   ),
   false,
   'authenticated users cannot claim preparation through service RPC'
+);
+select is(
+  has_function_privilege(
+    'authenticated',
+    'public.mark_game_audio_ready(text)',
+    'execute'
+  ),
+  true,
+  'authenticated players can acknowledge the downloaded game playlist'
 );
 select ok(
   has_function_privilege(
@@ -241,6 +275,140 @@ select is(
   ) ->> 'storage_path',
   '11111111-1111-1111-1111-111111111111.mp3',
   'room members receive the prepared private audio path'
+);
+select is(
+  private.game_preparation_status(
+    '00000000-0000-0000-0000-000000000104'
+  ) ->> 'ready_count',
+  '1',
+  'whole-game preparation progress counts ready rounds'
+);
+select ok(
+  (
+    private.service_claim_round_preparation(
+      'QATEST',
+      '00000000-0000-0000-0000-000000000101',
+      false
+    ) ->> 'status'
+  ) = 'ready'
+  and not (
+    private.service_claim_round_preparation(
+      'QATEST',
+      '00000000-0000-0000-0000-000000000101',
+      false
+    ) ? 'total_count'
+  ),
+  'legacy games keep the per-round preparation response contract'
+);
+select ok(
+  jsonb_array_length(
+    private.service_game_audio_access(
+      'QATEST',
+      '00000000-0000-0000-0000-000000000101'
+    ) -> 'tracks'
+  ) = 1,
+  'room members can preload every prepared track without reveal metadata'
+);
+
+insert into public.rounds (id, game_id, room_id, round_number)
+values (
+  '00000000-0000-0000-0000-000000000106',
+  '00000000-0000-0000-0000-000000000104',
+  '00000000-0000-0000-0000-000000000102',
+  2
+);
+insert into private.round_plans (round_id, planned_answer)
+values ('00000000-0000-0000-0000-000000000106', 'ai');
+insert into private.round_preparations (round_id)
+values ('00000000-0000-0000-0000-000000000106');
+insert into private.round_audio_ready (round_id, player_id)
+values (
+  '00000000-0000-0000-0000-000000000105',
+  '00000000-0000-0000-0000-000000000103'
+);
+update public.games
+set
+  full_game_audio_preload = true,
+  audio_preload_deadline = clock_timestamp() + interval '60 seconds'
+where id = '00000000-0000-0000-0000-000000000104';
+
+select lives_ok(
+  $$select private.advance_room_locked(
+    '00000000-0000-0000-0000-000000000102'
+  )$$,
+  'game advancement safely checks whole-game preparation'
+);
+select is(
+  (select phase::text from public.rooms where code = 'QATEST'),
+  'preparing',
+  'countdown waits while any game track is still pending'
+);
+
+update private.round_preparations
+set
+  status = 'ready',
+  track_id = (
+    select id from private.tracks
+    where provider = 'jamendo' and provider_track_id = 'pgtap-jamendo-1'
+  ),
+  ready_at = clock_timestamp()
+where round_id = '00000000-0000-0000-0000-000000000106';
+insert into private.round_secrets (round_id, track_id)
+select
+  '00000000-0000-0000-0000-000000000106',
+  id
+from private.tracks
+where provider = 'jamendo' and provider_track_id = 'pgtap-jamendo-1';
+
+select lives_ok(
+  $$select private.advance_room_locked(
+    '00000000-0000-0000-0000-000000000102'
+  )$$,
+  'game advancement checks full-game player readiness'
+);
+select is(
+  (select phase::text from public.rooms where code = 'QATEST'),
+  'preparing',
+  'countdown waits until every active player cached every round'
+);
+
+update public.games
+set audio_preload_deadline = clock_timestamp() - interval '1 second'
+where id = '00000000-0000-0000-0000-000000000104';
+
+select is(
+  private.service_game_preparation_status(
+    'QATEST',
+    '00000000-0000-0000-0000-000000000101'
+  ) ->> 'timed_out',
+  'true',
+  'the authoritative preload deadline reports a timeout'
+);
+select is(
+  private.service_game_preparation_status(
+    'QATEST',
+    '00000000-0000-0000-0000-000000000101'
+  ) #>> '{stalled_players,0,nickname}',
+  'SQL Tester',
+  'timeout status identifies the active stalled player'
+);
+
+insert into private.round_audio_ready (round_id, player_id)
+values (
+  '00000000-0000-0000-0000-000000000106',
+  '00000000-0000-0000-0000-000000000103'
+);
+
+select lives_ok(
+  $$select private.advance_room_locked(
+    '00000000-0000-0000-0000-000000000102'
+  )$$,
+  'game advancement starts after complete player caching'
+);
+select is(
+  (select phase::text from public.rooms where code = 'QATEST'),
+  'countdown',
+  'countdown begins once every game track and active player are ready'
 );
 
 select * from finish();
